@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts   #-}
@@ -75,5 +76,7 @@ newIdentifier str = do
             pure nextU
 
 instance PrettyCfg (Name s) where
-    prettyCfg (Configuration False _) (Name _ s _)         = pretty (decodeUtf8 (BSL.toStrict s))
-    prettyCfg (Configuration True _) (Name _ s (Unique u)) = pretty (decodeUtf8 (BSL.toStrict s)) <> "_" <> pretty u
+    prettyCfg (Configuration False _ _) (Name _ s _)         =
+        pretty (decodeUtf8 (BSL.toStrict s))
+    prettyCfg (Configuration True _ _) (Name _ s (Unique u)) =
+        pretty (decodeUtf8 (BSL.toStrict s)) <> "_" <> pretty u

@@ -136,8 +136,8 @@ instance Ord size => GCompare (TypedBuiltin size) where
             (TypedBuiltinSizedBS  , _                    ) -> GLT
             (TypedBuiltinSizedSize, _                    ) -> GGT
     TypedBuiltinBool             `gcompare` TypedBuiltinBool      = GEQ
-    TypedBuiltinSized _ _        `gcompare` TypedBuiltinBool      = GLT
     TypedBuiltinBool             `gcompare` TypedBuiltinSized _ _ = GGT
+    TypedBuiltinSized _ _        `gcompare` TypedBuiltinBool      = GLT
 
 instance Pretty BuiltinSized where
     pretty BuiltinSizedInt  = "integer"
