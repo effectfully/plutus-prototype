@@ -11,6 +11,7 @@ import           Language.Haskell.TH.Quote
 
 import           Language.PlutusCore.Error
 import           Language.PlutusCore.Name
+import           Language.PlutusCore.Parser
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Quote
 import           Language.PlutusCore.Subst

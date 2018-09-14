@@ -42082,6 +42082,7 @@ license = stdenv.lib.licenses.bsd3;
 , microlens
 , mmorph
 , mtl
+, optparse-applicative
 , prettyprinter
 , recursion-schemes
 , safe-exceptions
@@ -42133,6 +42134,8 @@ base
 bytestring
 hedgehog
 mmorph
+mtl
+optparse-applicative
 prettyprinter
 text
 ];
@@ -42142,6 +42145,7 @@ bytestring
 containers
 hedgehog
 mmorph
+mtl
 prettyprinter
 tasty
 tasty-golden
@@ -42153,6 +42157,7 @@ benchmarkHaskellDepends = [
 base
 bytestring
 criterion
+text
 ];
 doHaddock = false;
 description = "Language library for Plutus Core";
@@ -55441,6 +55446,55 @@ doHaddock = false;
 doCheck = false;
 homepage = "https://github.com/ocramz/plot-light";
 description = "A lightweight plotting library, exporting to SVG";
+license = stdenv.lib.licenses.bsd3;
+
+}) {};
+"plutus-core-interpreter" = callPackage
+({
+  mkDerivation
+, base
+, bytestring
+, containers
+, hedgehog
+, language-plutus-core
+, mmorph
+, prettyprinter
+, stdenv
+, tasty
+, tasty-golden
+, tasty-hedgehog
+, tasty-hunit
+, text
+}:
+mkDerivation {
+
+pname = "plutus-core-interpreter";
+version = "0.1.0.0";
+src = ./../plutus-core-interpreter;
+libraryHaskellDepends = [
+base
+bytestring
+containers
+language-plutus-core
+prettyprinter
+text
+];
+testHaskellDepends = [
+base
+bytestring
+containers
+hedgehog
+language-plutus-core
+mmorph
+prettyprinter
+tasty
+tasty-golden
+tasty-hedgehog
+tasty-hunit
+text
+];
+doHaddock = false;
+description = "Virtual machine for Plutus Core";
 license = stdenv.lib.licenses.bsd3;
 
 }) {};
@@ -83593,3 +83647,4 @@ in compiler.override {
   configurationCommon = { ... }: self: super: {};
   compilerConfig = self: super: {};
 }
+

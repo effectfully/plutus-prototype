@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts   #-}
+{-# LANGUAGE TypeFamilies       #-}
 
 module Language.PlutusCore.Type ( Term (..)
                                 , Value
@@ -19,6 +19,11 @@ module Language.PlutusCore.Type ( Term (..)
                                 -- * Helper functions
                                 , tyLoc
                                 , termLoc
+                                -- * Renamed types and terms
+                                , NameWithType (..)
+                                , RenamedType
+                                , RenamedTerm
+                                , TyNameWithKind (..)
                                 ) where
 
 import qualified Data.ByteString.Lazy           as BSL
@@ -26,6 +31,7 @@ import           Data.Functor.Foldable
 import           Instances.TH.Lift              ()
 import           Language.Haskell.TH.Syntax     (Lift)
 import           Language.PlutusCore.Lexer.Type
+import           Language.PlutusCore.Name
 import           PlutusPrelude
 
 type Size = Natural
@@ -195,3 +201,13 @@ instance Recursive (Kind a) where
 -- language.
 data Program tyname name a = Program a (Version a) (Term tyname name a)
                  deriving (Show, Eq, Functor, Generic, NFData, Lift)
+
+type RenamedTerm a = Term TyNameWithKind NameWithType a
+newtype NameWithType a = NameWithType (Name (a, RenamedType a))
+    deriving (Show, Eq, Functor, Generic)
+    deriving newtype NFData
+
+type RenamedType a = Type TyNameWithKind a
+newtype TyNameWithKind a = TyNameWithKind { unTyNameWithKind :: TyName (a, Kind a) }
+    deriving (Show, Eq, Functor, Generic)
+    deriving newtype NFData

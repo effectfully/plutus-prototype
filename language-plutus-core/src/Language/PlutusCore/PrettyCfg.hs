@@ -18,30 +18,25 @@ import           Data.Text.Prettyprint.Doc
 import           Data.Text.Prettyprint.Doc.Render.String (renderString)
 import           PlutusPrelude
 
-newtype RenderDebug = RenderDebug
-    { unRenderDebug :: Bool
-    }
+{-
+data Readability
+    = Classic
+    | Refined
+-}
 
-data RenderConfigClassic = RenderConfigClassic
-    { _renderConfigDebug      :: RenderDebug
+data RenderConfig = RenderConfig
+    { _renderConfigDebug      :: Bool
     , _renderConfigAnnotation :: Bool
     }
 
-newtype RenderConfigRefined = RenderConfigRefined
-    { _renderConfigRefinedDebug :: RenderDebug
-    }
-
-data RenderConfig
-    = RenderConfigClassic RenderConfigClassic
-    | RenderConfigRefined RenderConfigRefined
-
-class PrettyCfg cfg a where
-    prettyCfg :: cfg -> a -> Doc ann
-    default prettyCfg :: Pretty a => cfg -> a -> Doc ann
+class PrettyCfg a where
+    prettyCfg :: RenderConfig -> a -> Doc ann
+    default prettyCfg :: Pretty a => RenderConfig -> a -> Doc ann
     prettyCfg _ = pretty
 
 instance PrettyCfg Bool
 instance PrettyCfg Integer
+instance PrettyCfg ()
 
 instance PrettyCfg a => PrettyCfg [a] where
     prettyCfg cfg = list . fmap (prettyCfg cfg)
@@ -54,10 +49,10 @@ prettyCfgText :: PrettyCfg a => a -> T.Text
 prettyCfgText = render . prettyCfg defaultCfg
 
 defaultCfg :: RenderConfig
-defaultCfg = RenderConfig False False False
+defaultCfg = RenderConfig False False
 
 debugCfg :: RenderConfig
-debugCfg = RenderConfig True False True
+debugCfg = RenderConfig True False
 
 debugText :: PrettyCfg a => a -> T.Text
 debugText = render . prettyCfg debugCfg

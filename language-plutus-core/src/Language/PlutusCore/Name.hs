@@ -1,7 +1,7 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts   #-}
+{-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE OverloadedStrings  #-}
 
 module Language.PlutusCore.Name ( -- * Types
@@ -76,7 +76,7 @@ newIdentifier str = do
             pure nextU
 
 instance PrettyCfg (Name s) where
-    prettyCfg (Configuration False _ _) (Name _ s _)         =
+    prettyCfg (RenderConfig False _) (Name _ s _)         =
         pretty (decodeUtf8 (BSL.toStrict s))
-    prettyCfg (Configuration True _ _) (Name _ s (Unique u)) =
+    prettyCfg (RenderConfig True _) (Name _ s (Unique u)) =
         pretty (decodeUtf8 (BSL.toStrict s)) <> "_" <> pretty u

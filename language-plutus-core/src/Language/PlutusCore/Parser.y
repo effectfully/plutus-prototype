@@ -1,9 +1,13 @@
 {
     {-# LANGUAGE OverloadedStrings  #-}
+    {-# LANGUAGE FlexibleContexts   #-}
     module Language.PlutusCore.Parser ( parse
                                       , parseST
                                       , parseTermST
                                       , parseTypeST
+                                      , parseProgram
+                                      , parseTerm
+                                      , parseType
                                       , ParseError (..)
                                       ) where
 
@@ -14,10 +18,13 @@ import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc.Internal (Doc (Text))
 import Control.Monad.Except
 import Control.Monad.State
+import Language.PlutusCore.Error
 import Language.PlutusCore.Lexer.Type
 import Language.PlutusCore.Lexer
+import Language.PlutusCore.Quote
 import Language.PlutusCore.Type
 import Language.PlutusCore.Name
+import Language.PlutusCore.Constant.Make
 
 }
 
@@ -118,7 +125,7 @@ Type : TyName { TyVar (nameAttribute (unTyName $1)) $1 }
      | openParen all TyName Kind Type closeParen { TyForall $2 $3 $4 $5 }
      | openParen lam TyName Kind Type closeParen { TyLam $2 $3 $4 $5 }
      | openParen fix TyName Type closeParen { TyFix $2 $3 $4 }
-     | openBracket Type some(Type) closeBracket { tyApps $1 $2 (NE.reverse $3) } 
+     | openBracket Type some(Type) closeBracket { tyApps $1 $2 (NE.reverse $3) }
      | openParen con BuiltinType closeParen { $3 }
 
 Kind : parens(type) { Type $1 }
@@ -140,12 +147,9 @@ app loc t (t' :| []) = Apply loc t t'
 app loc t (t' :| ts) = Apply loc (app loc t (t':|init ts)) (last ts)
 
 handleInteger :: AlexPosn -> Natural -> Integer -> Parse (Constant AlexPosn)
-handleInteger x sz i = if isOverflow
-    then throwError (Overflow x sz i)
-    else pure (BuiltinInt x sz i)
-
-    where isOverflow = i < (-k) || i > (k - 1)
-          k = 8 ^ sz `div` 2
+handleInteger x sz i = case makeBuiltinInt sz i of
+    Nothing -> throwError (Overflow x sz i)
+    Just bi -> pure $ x <$ bi
 
 parseST :: BSL.ByteString -> StateT IdentifierState (Except (ParseError AlexPosn)) (Program TyName Name AlexPosn)
 parseST str =  runAlexST' str (runExceptT parsePlutusCoreProgram) >>= liftEither
@@ -155,6 +159,30 @@ parseTermST str = runAlexST' str (runExceptT parsePlutusCoreTerm) >>= liftEither
 
 parseTypeST :: BSL.ByteString -> StateT IdentifierState (Except (ParseError AlexPosn)) (Type TyName AlexPosn)
 parseTypeST str = runAlexST' str (runExceptT parsePlutusCoreType) >>= liftEither
+
+mapParseRun :: (MonadError (Error a) m, MonadQuote m) => StateT IdentifierState (Except (ParseError a)) b -> m b
+-- we need to run the parser starting from our current next unique, then throw away the rest of the
+-- parser state and get back the new next unique
+mapParseRun run = convertErrors asError $ do
+    nextU <- liftQuote get
+    (p, (_, _, u)) <- liftEither $ runExcept $ runStateT run (identifierStateFrom nextU)
+    liftQuote $ put u
+    pure p
+
+-- | Parse a PLC program. The resulting program will have fresh names. The underlying monad must be capable
+-- of handling any parse errors.
+parseProgram :: (MonadError (Error AlexPosn) m, MonadQuote m) => BSL.ByteString -> m (Program TyName Name AlexPosn)
+parseProgram str = mapParseRun (parseST str)
+
+-- | Parse a PLC term. The resulting program will have fresh names. The underlying monad must be capable
+-- of handling any parse errors.
+parseTerm :: (MonadError (Error AlexPosn) m, MonadQuote m) => BSL.ByteString -> m (Term TyName Name AlexPosn)
+parseTerm str = mapParseRun (parseTermST str)
+
+-- | Parse a PLC type. The resulting program will have fresh names. The underlying monad must be capable
+-- of handling any parse errors.
+parseType :: (MonadError (Error AlexPosn) m, MonadQuote m) => BSL.ByteString -> m (Type TyName AlexPosn)
+parseType str = mapParseRun (parseTypeST str)
 
 -- | Parse a 'ByteString' containing a Plutus Core program, returning a 'ParseError' if syntactically invalid.
 --
