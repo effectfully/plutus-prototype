@@ -24,6 +24,7 @@ import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc.Internal (Doc (Text))
 import Language.PlutusCore.Lexer.Type
 import Language.PlutusCore.PrettyCfg
+import Language.PlutusCore.Pretty.Classic
 import Language.PlutusCore.Name
 import Control.Monad.Except
 import Control.Monad.State
@@ -125,9 +126,6 @@ deriving instance Lift AlexPosn
 instance Pretty (AlexPosn) where
     pretty (AlexPn _ line col) = pretty line <> ":" <> pretty col
 
-instance PrettyCfg (AlexPosn) where
-    prettyCfg _ = pretty
-
 handleChar :: Word8 -> Word8
 handleChar x
     | x >= 48 && x <= 57 = x - 48 -- hexits 0-9
@@ -222,12 +220,14 @@ alexEOF = EOF . alex_pos <$> get
 data ParseError a = LexErr String
                   | Unexpected (Token a)
                   | Overflow a Natural Integer
-                  deriving (Show, Eq, Generic, NFData)
+                  deriving (Show, Eq, Functor, Generic, NFData)
 
-instance (PrettyCfg a) => PrettyCfg (ParseError a) where
-    prettyCfg _ (LexErr s)         = "Lexical error:" <+> Text (length s) (T.pack s)
-    prettyCfg cfg (Unexpected t)   = "Unexpected" <+> squotes (prettyCfg cfg t) <+> "at" <+> prettyCfg cfg (loc t)
-    prettyCfg cfg (Overflow pos _ _) = "Integer overflow at" <+> prettyCfg cfg pos <> "."
+instance Pretty a => Pretty (ParseError a) where
+    pretty (LexErr s)         = "Lexical error:" <+> Text (length s) (T.pack s)
+    pretty (Unexpected t)     = "Unexpected" <+> squotes (pretty t) <+> "at" <+> pretty (loc t)
+    pretty (Overflow pos _ _) = "Integer overflow at" <+> pretty pos <> "."
+
+instance Pretty a => PrettyCfg (ParseError a) where
 
 liftError :: Either String a -> Either (ParseError b) a
 liftError(Left s)  = Left $ LexErr s

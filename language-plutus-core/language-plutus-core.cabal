@@ -69,6 +69,8 @@ library
         Language.PlutusCore.Normalize
         Language.PlutusCore.CBOR
         Language.PlutusCore.PrettyCfg
+        Language.PlutusCore.Pretty.Classic
+        Language.PlutusCore.Pretty.Refined
         Language.PlutusCore.Subst
         Language.PlutusCore.TH
         Language.PlutusCore.Generators.Internal.Denotation

@@ -7,6 +7,7 @@ module Language.PlutusCore.Evaluation.Result
     ) where
 
 import           Language.PlutusCore.Name
+import           Language.PlutusCore.Pretty.Refined
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Type
 
@@ -17,7 +18,7 @@ data EvaluationResult
     deriving (Show, Eq)
 
 instance PrettyCfg EvaluationResult where
-    prettyCfg cfg (EvaluationSuccess value) = prettyCfg cfg value
+    prettyCfg cfg (EvaluationSuccess value) = prettyCfg cfg $ Refined <$> value
     prettyCfg _   EvaluationFailure         = "Failure"
 
 -- | Map 'EvaluationSuccess' to 'Just' and 'EvaluationFailure' to 'Nothing'.

@@ -13,7 +13,7 @@ import           PlutusPrelude
 
 newtype Classic a = Classic
     { unClassic :: a
-    }
+    } deriving (Eq, Show, NFData, Pretty)
 
 instance Pretty (Kind (Classic a)) where
     pretty = cata a where
@@ -26,15 +26,15 @@ instance (PrettyCfg (f (Classic a)), PrettyCfg (g (Classic a))) =>
     prettyCfg cfg (Program _ v t) =
         parens' ("program" <+> pretty v <//> prettyCfg cfg t)
 
-instance PrettyCfg (Constant (Classic a)) where
-    prettyCfg _   (BuiltinInt _ s i) = pretty s <+> "!" <+> pretty i
-    prettyCfg _   (BuiltinSize _ s)  = pretty s
-    prettyCfg _   (BuiltinBS _ s b)  = pretty s <+> "!" <+> prettyBytes b
-    prettyCfg cfg (BuiltinName _ n)  = prettyCfg cfg n
+instance Pretty (Constant (Classic a)) where
+    pretty (BuiltinInt _ s i) = pretty s <+> "!" <+> pretty i
+    pretty (BuiltinSize _ s)  = pretty s
+    pretty (BuiltinBS _ s b)  = pretty s <+> "!" <+> prettyBytes b
+    pretty (BuiltinName _ n)  = pretty n
 
 instance (PrettyCfg (f (Classic a)), PrettyCfg (g (Classic a))) => PrettyCfg (Term f g (Classic a)) where
     prettyCfg cfg = cata a where
-        a (ConstantF _ b)    = parens' ("con" </> prettyCfg cfg b)
+        a (ConstantF _ b)    = parens' ("con" </> pretty b)
         a (ApplyF _ t t')    = brackets' (vsep' [t, t'])
         a (VarF _ n)         = prettyCfg cfg n
         a (TyAbsF _ n k t)   = parens' ("abs" </> vsep' [prettyCfg cfg n, pretty k, t])

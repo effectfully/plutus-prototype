@@ -15,6 +15,7 @@ import           Language.PlutusCore.Constant.Make
 import           Language.PlutusCore.Constant.Typed
 import           Language.PlutusCore.Lexer.Type     (BuiltinName (..))
 import           Language.PlutusCore.Name
+import           Language.PlutusCore.Pretty.Refined
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Quote
 import           Language.PlutusCore.Type
@@ -60,27 +61,27 @@ instance Enum SizeVar where
     fromEnum (SizeVar sizeIndex) = sizeIndex
 
 instance PrettyCfg ConstAppError where
-    prettyCfg cfg (SizeMismatchConstAppError expSize con) = fold
+    prettyCfg _   (SizeMismatchConstAppError expSize con) = fold
         [ "Size mismatch error:", "\n"
         , "expected size: ", pretty expSize, "\n"
-        , "actual constant: ", prettyCfg cfg con
+        , "actual constant: ", pretty $ Refined <$> con
         ]
-    prettyCfg cfg (IllTypedConstAppError expType con)     = fold
+    prettyCfg _   (IllTypedConstAppError expType con)     = fold
         [ "Ill-typed constant application:", "\n"
         , "expected type: ", pretty expType, "\n"
-        , "actual constant: ", prettyCfg cfg con
+        , "actual constant: ", pretty $ Refined <$> con
         ]
     prettyCfg cfg (ExcessArgumentsConstAppError args)     = fold
         [ "A constant applied to too many arguments:", "\n"
-        , "Excess ones are: ", prettyCfg cfg args
+        , "Excess ones are: ", prettyCfg cfg $ map (fmap Refined) args
         ]
     prettyCfg cfg (SizedNonConstantConstAppError arg)     = fold
         [ "A non-constant argument of a sized type: "
-        , prettyCfg cfg arg
+        , prettyCfg cfg $ Refined <$> arg
         ]
 
 instance PrettyCfg ConstAppResult where
-    prettyCfg cfg (ConstAppSuccess res) = prettyCfg cfg res
+    prettyCfg cfg (ConstAppSuccess res) = prettyCfg cfg $ Refined <$> res
     prettyCfg _   ConstAppFailure       = "Constant application failure"
     prettyCfg _   ConstAppStuck         = "Stuck constant applcation"
     prettyCfg cfg (ConstAppError err)   = prettyCfg cfg err
