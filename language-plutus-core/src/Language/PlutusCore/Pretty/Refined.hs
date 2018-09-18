@@ -81,12 +81,12 @@ instance Pretty (Kind (Refined a)) where
 
 instance Pretty (Constant (Refined a)) where
     pretty = inTop . elementaryDoc . go where
-        go (BuiltinInt _ size int) = pretty size <+> "!" <+> pretty int
+        go (BuiltinInt _ size int) = pretty size <> "!" <> pretty int
         go (BuiltinSize _ size)    = pretty size
-        go (BuiltinBS _ size bs)   = pretty size <+> "!" <+> prettyBytes bs
+        go (BuiltinBS _ size bs)   = pretty size <> "!" <> prettyBytes bs
         go (BuiltinName _ name)    = pretty name
 
-instance (PrettyCfg (f (Refined a))) => PrettyCfg (Type f (Refined a)) where
+instance PrettyCfg (tyname (Refined a)) => PrettyCfg (Type tyname (Refined a)) where
     prettyCfg cfg = inTop . go where
        go (TyApp _ fun arg)         = compositionalDoc $ inBot (go fun) <+> inParens (go arg)
        go (TyVar _ name)            = elementaryDoc $ prettyCfg cfg name
@@ -100,7 +100,8 @@ instance (PrettyCfg (f (Refined a))) => PrettyCfg (Type f (Refined a)) where
        go (TyLam _ name kind ty)    = compositionalDoc $
            "\\" <+> parens (prettyCfg cfg name <+> "::" <+> pretty kind) <+> "->" <+> inBot (go ty)
 
-instance (PrettyCfg (f (Refined a)), PrettyCfg (g (Refined a))) => PrettyCfg (Term f g (Refined a)) where
+instance (PrettyCfg (tyname (Refined a)), PrettyCfg (name (Refined a))) =>
+        PrettyCfg (Term tyname name (Refined a)) where
     prettyCfg cfg = inTop . go where
         go (Constant _ con)         = elementaryDoc $ pretty con
         go (Apply _ fun arg)        = compositionalDoc $ inBot (go fun) <+> inParens (go arg)
@@ -116,62 +117,3 @@ instance (PrettyCfg (f (Refined a)), PrettyCfg (g (Refined a))) => PrettyCfg (Te
             "wrap" <+> prettyCfg cfg name <+> prettyCfg cfg ty <+> inParens (go term)
         go (Error _ ty)             = compositionalDoc $
             "error" <+> inBraces (elementaryDoc $ prettyCfg cfg ty)
-
--- instance PrettyCfg (Refined (TyNameWithKind a)) where
---     prettyCfg cfg@(Configuration _ True) (TyNameWithKind (TyName tn@(Name (_, k) _ _))) = parens (prettyCfg cfg tn <+> ":" <+> pretty k)
---     prettyCfg cfg@(Configuration _ False) (TyNameWithKind tn) = prettyCfg cfg tn
-
--- instance PrettyCfg (Refined (NameWithType a)) where
---     prettyCfg cfg@(Configuration _ True) (NameWithType n@(Name (_, ty) _ _)) = parens (prettyCfg cfg n <+> ":" <+> prettyCfg cfg ty)
---     prettyCfg cfg@(Configuration _ False) (NameWithType n) = prettyCfg cfg n
-
-
-
-
-
-
--- prettyString $ KindArrow (Refined ()) (KindArrow (Refined ()) (Type (Refined ())) (Type (Refined ()))) (Type (Refined ()))
-
-
--- instance Pretty a => Pretty (Refined RenderPlain a) where
---     pretty (Refined x) = pretty x
-
--- instance Pretty a => Pretty (Refined RenderParens a) where
---     pretty (Refined x) = parens $ pretty x
-
--- instance Pretty a => Pretty (Refined RenderParensAlign a) where
---     pretty (Refined x) = parens' $ pretty x
-
--- refinedAs
---     :: Coercible (f (Refined render a)) (f (Refined render' a))
---     => render' -> f (Refined render a) -> f (Refined render' a)
--- refinedAs _ = coerce
-
--- -- refinedAs :: render -> Refined render' a -> Refined render a
--- -- refinedAs _ = coerce
-
--- -- prettyRefined :: f (Refined render a) -> (f a -> Doc ann) -> Doc ann
--- -- prettyRefined = undefined
-
--- prettyRefined :: render -> Doc ann -> Doc ann
--- prettyRefined = undefined
-
--- -- k :: Doc ann
--- -- k :: Doc (Refined render ann)
-
--- -- coerceAnn :: f a -> f b
-
--- instance Pretty (Kind (Refined render a)) where
---     -- pretty kind = prettyRefined $ cata a kind where
---     --     a TypeF{}             = "*"       -- Outer  Inner
---                                              -- Parens Plain -> id
---                                              -- Top    Plain -> parens
---     --     a SizeF{}             = "size"
---     --     a (KindArrowF _ k k') = coerce $ refinedAs RenderParens k <+> "->" <+> refinedAs RenderPlain k'
---                                              -- Top    Parens -> parens
---                                              -- Parens Parens -> parens
---                                              -- Plain  Parens -> id
---     pretty Type{}            = undefined  -- prettyRefined RenderPlain "*" :: Doc a
---                                --                                          :: Doc a
---     pretty Size{}            = undefined
---     pretty (KindArrow _ k l) = undefined

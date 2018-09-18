@@ -6,13 +6,13 @@
 
 module Language.PlutusCore.Pretty.Classic where
 
-import           Data.Functor.Foldable
 import           Language.PlutusCore.Lexer.Type
 import           Language.PlutusCore.Name
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Type
 import           PlutusPrelude
 
+import           Data.Functor.Foldable
 import           Unsafe.Coerce
 
 newtype Classic a = Classic
@@ -32,8 +32,7 @@ instance Pretty (Kind (Classic a)) where
 
 instance (PrettyCfg (tyname (Classic a)), PrettyCfg (name (Classic a))) =>
              PrettyCfg (Program tyname name (Classic a)) where
-    prettyCfg cfg (Program _ v t) =
-        parens' ("program" <+> pretty v <//> prettyCfg cfg t)
+    prettyCfg cfg (Program _ v t) = parens' ("program" <+> pretty v <//> prettyCfg cfg t)
 
 instance Pretty (Constant (Classic a)) where
     pretty (BuiltinInt _ s i) = pretty s <+> "!" <+> pretty i
