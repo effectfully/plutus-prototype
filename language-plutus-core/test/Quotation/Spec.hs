@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
 
@@ -21,11 +22,11 @@ tests = testGroup "quasiquoter" [
   asGolden (runQuote free) "test/Quotation/free.plc"
  ]
 
-asGolden :: PrettyCfg a => a -> TestName -> TestTree
+asGolden :: (Functor f, PrettyCfg (f (Classic a))) => f a -> TestName -> TestTree
 asGolden a file = goldenVsString file (file ++ ".golden") (pure $ showTest a)
 
-showTest :: PrettyCfg a => a -> BSL.ByteString
-showTest = BSL.fromStrict . encodeUtf8 . debugText
+showTest :: (Functor f, PrettyCfg (f (Classic a))) => f a -> BSL.ByteString
+showTest = BSL.fromStrict . encodeUtf8 . debugText . classicView
 
 unit :: Quote (Type TyName ())
 unit = [plcType|(all a (type) (fun a a))|]

@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE DeriveAnyClass       #-}
+{-# LANGUAGE DerivingStrategies   #-}
+{-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Language.PlutusCore.Type ( Term (..)
                                 , Value
@@ -24,6 +25,8 @@ module Language.PlutusCore.Type ( Term (..)
                                 , RenamedType
                                 , RenamedTerm
                                 , TyNameWithKind (..)
+                                -- * Normalized types
+                                , NormalizedType (..)
                                 ) where
 
 import qualified Data.ByteString.Lazy           as BSL
@@ -32,6 +35,7 @@ import           Instances.TH.Lift              ()
 import           Language.Haskell.TH.Syntax     (Lift)
 import           Language.PlutusCore.Lexer.Type
 import           Language.PlutusCore.Name
+import           Language.PlutusCore.PrettyCfg
 import           PlutusPrelude
 
 type Size = Natural
@@ -211,3 +215,10 @@ type RenamedType a = Type TyNameWithKind a
 newtype TyNameWithKind a = TyNameWithKind { unTyNameWithKind :: TyName (a, Kind a) }
     deriving (Show, Eq, Functor, Generic)
     deriving newtype NFData
+
+newtype NormalizedType tyname a = NormalizedType { getNormalizedType :: Type tyname a }
+    deriving (Show, Eq, Functor, Generic)
+    deriving newtype NFData
+
+instance PrettyCfg (Type tyname a) => PrettyCfg (NormalizedType tyname a) where
+    prettyCfg cfg (NormalizedType ty) = prettyCfg cfg ty

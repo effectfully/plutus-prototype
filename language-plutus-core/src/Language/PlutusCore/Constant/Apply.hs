@@ -69,19 +69,19 @@ instance PrettyCfg ConstAppError where
     prettyCfg _   (IllTypedConstAppError expType con)     = fold
         [ "Ill-typed constant application:", "\n"
         , "expected type: ", pretty expType, "\n"
-        , "actual constant: ", pretty $ Refined <$> con
+        , "actual constant: ", pretty $ refinedView con
         ]
     prettyCfg cfg (ExcessArgumentsConstAppError args)     = fold
         [ "A constant applied to too many arguments:", "\n"
-        , "Excess ones are: ", prettyCfg cfg $ map (fmap Refined) args
+        , "Excess ones are: ", prettyCfg cfg $ map refinedView args
         ]
     prettyCfg cfg (SizedNonConstantConstAppError arg)     = fold
         [ "A non-constant argument of a sized type: "
-        , prettyCfg cfg $ Refined <$> arg
+        , prettyCfg cfg $ refinedView arg
         ]
 
 instance PrettyCfg ConstAppResult where
-    prettyCfg cfg (ConstAppSuccess res) = prettyCfg cfg $ Refined <$> res
+    prettyCfg cfg (ConstAppSuccess res) = prettyCfg cfg $ refinedView res
     prettyCfg _   ConstAppFailure       = "Constant application failure"
     prettyCfg _   ConstAppStuck         = "Stuck constant applcation"
     prettyCfg cfg (ConstAppError err)   = prettyCfg cfg err

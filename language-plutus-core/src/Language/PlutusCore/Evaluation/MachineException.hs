@@ -8,6 +8,7 @@ module Language.PlutusCore.Evaluation.MachineException
 
 import           Language.PlutusCore.Constant.Apply
 import           Language.PlutusCore.Name
+import           Language.PlutusCore.Pretty.Classic
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Type
 import           PlutusPrelude
@@ -46,7 +47,7 @@ instance PrettyCfg MachineError where
 instance Show MachineException where
     show (MachineException err cause) = fold
         [ "An abstract machine failed: " , prettyCfgString err, "\n"
-        , "Caused by: ", prettyCfgString cause
+        , "Caused by: ", prettyCfgString $ classicView cause
         ]
 
 instance Exception MachineException

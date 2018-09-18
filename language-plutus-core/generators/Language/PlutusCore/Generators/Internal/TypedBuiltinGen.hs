@@ -54,7 +54,7 @@ type TypedBuiltinGenT m = forall a. TypedBuiltin Size a -> GenT m (TermOf a)
 type TypedBuiltinGen = TypedBuiltinGenT Identity
 
 instance PrettyCfg a => PrettyCfg (TermOf a) where
-    prettyCfg cfg (TermOf t x) = prettyCfg cfg t <+> "~>" <+> prettyCfg cfg x
+    prettyCfg cfg (TermOf term x) = prettyCfg cfg (classicView term) <+> "~>" <+> prettyCfg cfg x
 
 attachCoercedTerm :: MonadQuote m => TypedBuiltin Size a -> GenT m a -> GenT m (TermOf a)
 attachCoercedTerm tb genX = do

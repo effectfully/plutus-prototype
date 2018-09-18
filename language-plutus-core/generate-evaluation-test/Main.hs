@@ -28,9 +28,9 @@ generateTerm
           actual <- evaluationResultToMaybe $ evaluateCk term
           when (actual /= expected) . error $ fold
               [ "An internal error in 'generateTerm' occured while computing "
-              , prettyCfgString term, "\n"
-              , "Expected result: ", prettyCfgString expected , "\n"
-              , "Actual result: ", prettyCfgString actual, "\n"
+              , prettyCfgString $ refinedView term, "\n"
+              , "Expected result: ", prettyCfgString $ classicView expected , "\n"
+              , "Actual result: ", prettyCfgString $ classicView actual, "\n"
               ]
           Just $ TermOf term actual
 
@@ -41,7 +41,7 @@ main :: IO ()
 main = do
     TermOf term value <- generateTerm
     traverse_ Text.putStrLn
-        [ oneline . prettyCfgText $ Program () (Version () 0 1 0) term
+        [ oneline . prettyCfgText . classicView $ Program () (Version () 0 1 0) term
         , ""
-        , oneline $ prettyCfgText value
+        , oneline . prettyCfgText . classicView $ value
         ]

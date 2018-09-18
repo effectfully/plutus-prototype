@@ -1,14 +1,18 @@
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Language.PlutusCore.Pretty.Refined where
 
-import           Data.Text.Prettyprint.Doc.Internal (enclose)
-import           Language.PlutusCore.Lexer.Type     hiding (builtin, int, name)
+import           Language.PlutusCore.Lexer.Type     hiding (name)
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Type
 import           PlutusPrelude
+
+import           Data.Text.Prettyprint.Doc.Internal (enclose)
+import           Unsafe.Coerce
 
 data DocComplexity
     = ElementaryDoc
@@ -59,7 +63,12 @@ inTop = renderDocWithComplexity RenderTop
 
 newtype Refined a = Refined
     { unRefined :: a
-    }
+    } deriving (Eq, Show, Functor, NFData, Pretty)
+
+-- I'm getting weird errors with
+-- refinedView :: Coercible (f a) (f (Refined a)) => f a -> f (Refined a)
+refinedView :: Functor f => f a -> f (Refined a)
+refinedView = unsafeCoerce
 
 instance Pretty (Kind (Refined a)) where
     pretty = inTop . go where

@@ -13,10 +13,11 @@ module Language.PlutusCore.PrettyCfg ( PrettyCfg (..)
                                      , renderCfg
                                      ) where
 
+import           PlutusPrelude
+
 import qualified Data.Text                               as T
 import           Data.Text.Prettyprint.Doc
 import           Data.Text.Prettyprint.Doc.Render.String (renderString)
-import           PlutusPrelude
 
 {-
 data Readability

@@ -11,13 +11,17 @@ module Language.PlutusCore
     , parseTerm
     , parseType
     -- * Pretty-printing
-    , Configuration (..)
+    , RenderConfig (..)
     , defaultCfg
     , debugCfg
     , prettyCfgText
     , prettyCfgString
     , debugText
     , prettyString
+    , Classic
+    , Refined
+    , classicView
+    , refinedView
     -- * AST
     , Term (..)
     , Type (..)
@@ -33,6 +37,7 @@ module Language.PlutusCore
     , Value
     , BuiltinName (..)
     , TypeBuiltin (..)
+    , defaultVersion
     -- * Lexer
     , AlexPosn (..)
     -- * Views
@@ -98,7 +103,6 @@ module Language.PlutusCore
     , plcTerm
     , plcProgram
     -- * Evaluation
-    , parseRunCk
     , EvaluationResult (..)
     ) where
 
@@ -115,6 +119,8 @@ import           Language.PlutusCore.Lexer.Type
 import           Language.PlutusCore.Name
 import           Language.PlutusCore.Normalize
 import           Language.PlutusCore.Parser
+import           Language.PlutusCore.Pretty.Classic
+import           Language.PlutusCore.Pretty.Refined
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Quote
 import           Language.PlutusCore.Renamer
@@ -124,23 +130,27 @@ import           Language.PlutusCore.TypeSynthesis
 import           Language.PlutusCore.View
 import           PlutusPrelude
 
+-- | Render as strict 'Text', using 'defaultCfg' and the 'Classic' mode
+prettyCfgClassicText :: Functor f => PrettyCfg (f (Classic a)) => f a -> T.Text
+prettyCfgClassicText = prettyCfgText . classicView
+
 -- | Given a file at @fibonacci.plc@, @fileType "fibonacci.plc"@ will display
 -- its type or an error message.
 fileType :: FilePath -> IO T.Text
-fileType = fmap (either prettyCfgText id . printType) . BSL.readFile
+fileType = fmap (either prettyCfgClassicText id . printType) . BSL.readFile
 
 -- | Given a file, display
 -- its type or an error message, optionally dumping annotations and debug
 -- information.
-fileTypeCfg :: Configuration -> FilePath -> IO T.Text
-fileTypeCfg cfg = fmap (either (renderCfg cfg) id . printType) . BSL.readFile
+fileTypeCfg :: RenderConfig -> FilePath -> IO T.Text
+fileTypeCfg cfg = fmap (either (renderCfg cfg . classicView) id . printType) . BSL.readFile
 
 checkFile :: FilePath -> IO (Maybe T.Text)
-checkFile = fmap (either (pure . prettyCfgText) id . fmap (fmap prettyCfgText . check) . parse) . BSL.readFile
+checkFile = fmap (either (pure . prettyCfgClassicText) id . fmap (fmap prettyCfgClassicText . check) . parse) . BSL.readFile
 
 -- | Print the type of a program contained in a 'ByteString'
 printType :: (MonadError (Error AlexPosn) m) => BSL.ByteString -> m T.Text
-printType bs = runQuoteT $ prettyCfgText <$> (typecheckProgram 1000 <=< annotateProgram <=< (liftEither . convertError . parseScoped)) bs
+printType bs = runQuoteT $ prettyCfgClassicText <$> (typecheckProgram 1000 <=< annotateProgram <=< (liftEither . convertError . parseScoped)) bs
 
 -- | Parse and rewrite so that names are globally unique, not just unique within
 -- their scope.
@@ -148,19 +158,19 @@ parseScoped :: (MonadError (Error AlexPosn) m) => BSL.ByteString -> m (Program T
 parseScoped str = liftEither $ convertError $ fmap (\(p, s) -> rename s p) $ runExcept $ runStateT (parseST str) emptyIdentifierState
 
 -- | Parse a program and typecheck it.
-parseTypecheck :: (MonadError (Error AlexPosn) m, MonadQuote m) => Natural -> BSL.ByteString -> m (Type TyNameWithKind ())
+parseTypecheck :: (MonadError (Error AlexPosn) m, MonadQuote m) => Natural -> BSL.ByteString -> m (NormalizedType TyNameWithKind AlexPosn)
 parseTypecheck gas bs = do
     parsed <- parseProgram bs
     checkProgram parsed
     annotated <- annotateProgram parsed
     typecheckProgram gas annotated
 
--- | Parse a program and run it using the CK machine.
-parseRunCk :: (MonadError (Error AlexPosn) m) => BSL.ByteString -> m EvaluationResult
-parseRunCk = fmap (runCk . void) . parseScoped
-
 formatDoc :: (MonadError (Error AlexPosn) m) => BSL.ByteString -> m (Doc a)
-formatDoc bs = runQuoteT $ prettyCfg defaultCfg <$> parseProgram bs
+formatDoc bs = runQuoteT $ prettyCfg defaultCfg . classicView <$> parseProgram bs
 
-format :: (MonadError (Error AlexPosn) m) => Configuration -> BSL.ByteString -> m T.Text
-format cfg = fmap (render . prettyCfg cfg) . parseScoped
+format :: (MonadError (Error AlexPosn) m) => RenderConfig -> BSL.ByteString -> m T.Text
+format cfg = fmap (render . prettyCfg cfg . classicView) . parseScoped
+
+-- | The default version of Plutus Core supported by this library.
+defaultVersion :: a -> Version a
+defaultVersion a = Version a 1 0 0

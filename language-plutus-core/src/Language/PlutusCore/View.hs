@@ -20,7 +20,7 @@ import           PlutusPrelude
 data IterApp head arg = IterApp
     { _iterAppHead  :: head
     , _iterAppSpine :: [arg]
-    }
+    } deriving (Functor)
 
 -- | An iterated application of a 'Term' to a list of 'Term's.
 type TermIterApp tyname name a =
@@ -30,9 +30,9 @@ type TermIterApp tyname name a =
 type PrimIterApp tyname name a =
     IterApp BuiltinName (Value tyname name a)
 
-instance (PrettyCfg head, PrettyCfg arg) => PrettyCfg (IterApp head arg) where
+instance (Pretty head, PrettyCfg arg) => PrettyCfg (IterApp head arg) where
     prettyCfg cfg (IterApp appHead appSpine) =
-        parens $ foldl' (\fun arg -> fun <+> prettyCfg cfg arg) (prettyCfg cfg appHead) appSpine
+        parens $ foldl' (\fun arg -> fun <+> prettyCfg cfg arg) (pretty appHead) appSpine
 
 -- | View a 'Constant' as an 'Integer'.
 constantAsInteger :: Constant a -> Maybe Integer

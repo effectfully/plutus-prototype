@@ -73,7 +73,7 @@ propParser :: Property
 propParser = property $ do
     prog <- forAll genProgram
     let nullPosn = fmap (pure emptyPosn)
-        reprint = BSL.fromStrict . encodeUtf8 . prettyCfgText
+        reprint = BSL.fromStrict . encodeUtf8 . prettyCfgText . classicView
         proc = nullPosn <$> parse (reprint prog)
         compared = and (compareProgram (nullPosn prog) <$> proc)
     Hedgehog.assert compared

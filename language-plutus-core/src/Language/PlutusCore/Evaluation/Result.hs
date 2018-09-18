@@ -18,7 +18,7 @@ data EvaluationResult
     deriving (Show, Eq)
 
 instance PrettyCfg EvaluationResult where
-    prettyCfg cfg (EvaluationSuccess value) = prettyCfg cfg $ Refined <$> value
+    prettyCfg cfg (EvaluationSuccess value) = prettyCfg cfg $ refinedView value
     prettyCfg _   EvaluationFailure         = "Failure"
 
 -- | Map 'EvaluationSuccess' to 'Just' and 'EvaluationFailure' to 'Nothing'.

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 -- | Generators of various PLC things: 'Builtin's, 'IterApp's, 'Term's, etc.
 
 {-# LANGUAGE GADTs             #-}
@@ -29,9 +30,10 @@ import           PlutusPrelude
 import           Control.Exception                                       (evaluate)
 import           Control.Exception.Safe                                  (tryAny)
 import           Control.Monad.Reader
-import qualified Data.ByteString.Lazy.Char8                              as BSL
+import qualified Data.ByteString.Lazy                                    as BSL
 import qualified Data.Dependent.Map                                      as DMap
 import           Data.Functor.Compose
+import           Data.Text.Encoding                                      (encodeUtf8)
 import           Data.Text.Prettyprint.Doc
 import           Hedgehog                                                hiding (Size, Var)
 import qualified Hedgehog.Gen                                            as Gen
@@ -60,10 +62,12 @@ data IterAppValue head arg r = IterAppValue
     , _iterTbv  :: TypedBuiltinValue Size r  -- ^ As a Haskell value.
     }
 
-instance (PrettyCfg head, PrettyCfg arg) => PrettyCfg (IterAppValue head arg r) where
+-- instance (Pretty head, PrettyCfg arg) => PrettyCfg (IterAppValue head arg r) where
+-- TODO: fix me.
+instance (Pretty head, Functor f, PrettyCfg (f (Refined a))) => PrettyCfg (IterAppValue head (f a) r) where
     prettyCfg cfg (IterAppValue term pia tbv) = parens $ fold
-        [ "{ ", prettyCfg cfg term, line
-        , "| ", prettyCfg cfg pia, line
+        [ "{ ", prettyCfg cfg $ refinedView term, line
+        , "| ", prettyCfg cfg $ fmap refinedView pia, line
         , "| ", pretty tbv, line
         , "}"
         ]
@@ -72,14 +76,15 @@ instance (PrettyCfg head, PrettyCfg arg) => PrettyCfg (IterAppValue head arg r) 
 runPlcT :: Monad m => GenT m Size -> TypedBuiltinGenT m -> PlcGenT m a -> GenT m a
 runPlcT genSize genTb = hoistSupply $ BuiltinGensT genSize genTb
 
--- | Add to the 'ByteString' representation of a name its 'Unique'.
-revealUnique :: Name a -> Name a
-revealUnique (Name ann name uniq) =
-    Name ann (name <> BSL.pack ('_' : show (unUnique uniq))) uniq
-
 -- | Get a 'TermOf' out of an 'IterAppValue'.
 iterAppValueToTermOf :: IterAppValue head arg r -> TermOf r
 iterAppValueToTermOf (IterAppValue term _ (TypedBuiltinValue _ x)) = TermOf term x
+
+-- | Add to the 'ByteString' representation of a 'Name' its 'Unique'
+-- without any additional symbols inbetween.
+revealUnique :: Name a -> Name a
+revealUnique (Name ann name uniq) =
+    Name ann (name <> BSL.fromStrict (encodeUtf8 . prettyText $ unUnique uniq)) uniq
 
 -- | Generate a size from bounds.
 genSizeIn :: Monad m => Size -> Size -> GenT m Size

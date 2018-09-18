@@ -8,13 +8,12 @@
 
 module Language.PlutusCore.TH (plcTerm, plcType, plcProgram) where
 
-import           Language.Haskell.TH                hiding (Name, Type)
+import           Language.Haskell.TH           hiding (Name, Type)
 import           Language.Haskell.TH.Quote
 
 import           Language.PlutusCore.Error
 import           Language.PlutusCore.Name
 import           Language.PlutusCore.Parser
-import           Language.PlutusCore.Pretty.Classic
 import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Quote
 import           Language.PlutusCore.Subst
@@ -23,11 +22,11 @@ import           Language.PlutusCore.Type
 import           PlutusPrelude
 
 import           Control.Monad.Except
-import           Control.Monad.Morph                as MM
-import qualified Data.ByteString.Lazy               as BSL
+import           Control.Monad.Morph           as MM
+import qualified Data.ByteString.Lazy          as BSL
 import           Data.Functor.Identity
-import qualified Data.Map                           as Map
-import qualified Data.Set                           as Set
+import qualified Data.Map                      as Map
+import qualified Data.Set                      as Set
 
 {-
 This uses the approach in https://www.well-typed.com/blog/2014/10/quasi-quoting-dsls/ to use free
@@ -96,9 +95,9 @@ metavarSubstTerm t tyMetavars termMetavars = substTerm
                         t
 
 -- | Runs a 'QuoteT' in the 'Q' context. Note that this uses 'runQuoteT', so does note preserve freshness.
-eval :: (c ~ Classic b, PrettyCfg (Error c)) => QuoteT (Except (Error b)) a -> Q a
+eval :: PrettyCfg (Error b) => QuoteT (Except (Error b)) a -> Q a
 eval c = case runExcept $ runQuoteT c of
-    Left e  -> fail $ prettyCfgString $ Classic <$> e
+    Left e  -> fail $ prettyCfgString e
     Right p -> pure p
 
 unsafeDropErrors :: Except e a -> a

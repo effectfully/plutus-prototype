@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -11,9 +13,16 @@ import           Language.PlutusCore.PrettyCfg
 import           Language.PlutusCore.Type
 import           PlutusPrelude
 
+import           Unsafe.Coerce
+
 newtype Classic a = Classic
     { unClassic :: a
-    } deriving (Eq, Show, NFData, Pretty)
+    } deriving (Eq, Show, Functor, NFData, Pretty)
+
+-- I'm getting weird errors with
+-- classicView :: Coercible (f a) (f (Classic a)) => f a -> f (Classic a)
+classicView :: Functor f => f a -> f (Classic a)
+classicView = unsafeCoerce
 
 instance Pretty (Kind (Classic a)) where
     pretty = cata a where
@@ -21,8 +30,8 @@ instance Pretty (Kind (Classic a)) where
         a SizeF{}             = "(size)"
         a (KindArrowF _ k k') = parens ("fun" <+> k <+> k')
 
-instance (PrettyCfg (f (Classic a)), PrettyCfg (g (Classic a))) =>
-             PrettyCfg (Program f g (Classic a)) where
+instance (PrettyCfg (tyname (Classic a)), PrettyCfg (name (Classic a))) =>
+             PrettyCfg (Program tyname name (Classic a)) where
     prettyCfg cfg (Program _ v t) =
         parens' ("program" <+> pretty v <//> prettyCfg cfg t)
 
@@ -32,7 +41,8 @@ instance Pretty (Constant (Classic a)) where
     pretty (BuiltinBS _ s b)  = pretty s <+> "!" <+> prettyBytes b
     pretty (BuiltinName _ n)  = pretty n
 
-instance (PrettyCfg (f (Classic a)), PrettyCfg (g (Classic a))) => PrettyCfg (Term f g (Classic a)) where
+instance (PrettyCfg (tyname (Classic a)), PrettyCfg (name (Classic a))) =>
+        PrettyCfg (Term tyname name (Classic a)) where
     prettyCfg cfg = cata a where
         a (ConstantF _ b)    = parens' ("con" </> pretty b)
         a (ApplyF _ t t')    = brackets' (vsep' [t, t'])
@@ -45,7 +55,7 @@ instance (PrettyCfg (f (Classic a)), PrettyCfg (g (Classic a))) => PrettyCfg (Te
         a (WrapF _ n ty t)   = parens' ("wrap" </> vsep' [prettyCfg cfg n, prettyCfg cfg ty, t])
         a (ErrorF _ ty)      = parens' ("error" </> prettyCfg cfg ty)
 
-instance (PrettyCfg (f (Classic a))) => PrettyCfg (Type f (Classic a)) where
+instance PrettyCfg (tyname (Classic a)) => PrettyCfg (Type tyname (Classic a)) where
     prettyCfg cfg = cata a where
         a (TyAppF _ t t')     = brackets (t <+> t')
         a (TyVarF _ n)        = prettyCfg cfg n
