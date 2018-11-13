@@ -17,7 +17,7 @@ import           Language.PlutusCore.Type
 --
 -- > /\(s :: size) -> \(i : integer s) ->
 -- >     addInteger {s} i (resizeInteger {1} {s} (sizeOfInteger {s} i) 1!1)
-getBuiltinSuccInteger :: Quote (Term TyName Name ())
+getBuiltinSuccInteger :: Quote (Term dyn TyName Name ())
 getBuiltinSuccInteger = rename =<< do
     s <- freshTyName () "s"
     i  <- freshName () "i"

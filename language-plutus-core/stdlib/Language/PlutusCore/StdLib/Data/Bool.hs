@@ -31,7 +31,7 @@ getBuiltinBool = rename =<< do
 -- | 'True' as a PLC term.
 --
 -- > /\(A :: *) -> \(x y : A) -> x
-getBuiltinTrue :: Quote (Value TyName Name ())
+getBuiltinTrue :: Quote (Value dyn TyName Name ())
 getBuiltinTrue = rename =<< do
     a <- freshTyName () "a"
     x <- freshName () "x"
@@ -47,7 +47,7 @@ getBuiltinTrue = rename =<< do
 -- | 'False' as a PLC term.
 --
 -- > /\(A :: *) -> \(x y : A) -> y
-getBuiltinFalse :: Quote (Value TyName Name ())
+getBuiltinFalse :: Quote (Value dyn TyName Name ())
 getBuiltinFalse = rename =<< do
     a <- freshTyName () "a"
     x <- freshName () "x"
@@ -63,7 +63,7 @@ getBuiltinFalse = rename =<< do
 -- | @if_then_else_@ as a PLC term.
 --
 -- > /\(A :: *) -> \(b : Bool) (x y : () -> A) -> b {() -> A} x y ()
-getBuiltinIf :: Quote (Value TyName Name ())
+getBuiltinIf :: Quote (Value dyn TyName Name ())
 getBuiltinIf = rename =<< do
     unit <- getBuiltinUnit
     unitval <- getBuiltinUnitval

@@ -23,7 +23,7 @@ import           Control.Monad
 -- | 'const' as a PLC term.
 --
 -- > /\ (A B :: *) -> \(x : A) (y : B) -> x
-getBuiltinConst :: Quote (Term TyName Name ())
+getBuiltinConst :: Quote (Term dyn TyName Name ())
 getBuiltinConst = do
     a <- freshTyName () "a"
     b <- freshTyName () "b"
@@ -53,7 +53,7 @@ getBuiltinSelf = do
 -- | @unroll@ as a PLC term.
 --
 -- > /\(a :: *) -> \(s : self a) -> unwrap s s
-getBuiltinUnroll :: Quote (Term TyName Name ())
+getBuiltinUnroll :: Quote (Term dyn TyName Name ())
 getBuiltinUnroll = do
     self <- getBuiltinSelf
     a <- freshTyName () "a"
@@ -72,7 +72,7 @@ getBuiltinUnroll = do
 -- >    unroll {a -> b} (wrap \(s : self (a -> b)) \(x : a) -> f (unroll {a -> b} s) x)
 --
 -- See @plutus/docs/fomega/z-combinator-benchmarks@ for details.
-getBuiltinFix :: Quote (Term TyName Name ())
+getBuiltinFix :: Quote (Term dyn TyName Name ())
 getBuiltinFix = rename =<< do
     self   <- getBuiltinSelf
     unroll <- getBuiltinUnroll
@@ -124,7 +124,7 @@ natTransId f = do
 --     forall (F :: * -> *) .
 --     ((F ~> Id) -> (F ~> Id)) ->
 --     ((F ~> F) -> (F ~> Id))
-getBuiltinFixBy :: Quote (Term TyName Name ())
+getBuiltinFixBy :: Quote (Term dyn TyName Name ())
 getBuiltinFixBy = do
     f <- freshTyName () "F"
 
@@ -193,7 +193,7 @@ getBuiltinFixBy = do
 --           (An -> Bn) ->
 --           Q) ->
 --       (forall R :: * . ((A1 -> B1) -> ... (An -> Bn) -> R) -> R)
-getBuiltinFixN :: Int -> Quote (Term TyName Name ())
+getBuiltinFixN :: Int -> Quote (Term dyn TyName Name ())
 getBuiltinFixN n = do
     -- the list of pairs of A and B types
     asbs <- replicateM n $ do

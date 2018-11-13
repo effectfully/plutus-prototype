@@ -38,7 +38,7 @@ getBuiltinNat = do
 -- |  '0' as a PLC term.
 --
 -- > wrap /\(r :: *) -> \(z : r) (f : nat -> r) -> z
-getBuiltinZero :: Quote (Term TyName Name ())
+getBuiltinZero :: Quote (Term dyn TyName Name ())
 getBuiltinZero = rename =<< do
     RecursiveType wrapNat nat <- holedToRecursive <$> getBuiltinNat
     r <- freshTyName () "r"
@@ -54,7 +54,7 @@ getBuiltinZero = rename =<< do
 -- |  'succ' as a PLC term.
 --
 -- > \(n : nat) -> wrap /\(r :: *) -> \(z : r) (f : nat -> r) -> f n
-getBuiltinSucc :: Quote (Term TyName Name ())
+getBuiltinSucc :: Quote (Term dyn TyName Name ())
 getBuiltinSucc = rename =<< do
     RecursiveType wrapNat nat <- holedToRecursive <$> getBuiltinNat
     n <- freshName () "n"
@@ -75,7 +75,7 @@ getBuiltinSucc = rename =<< do
 -- > /\(r :: *) -> \(f : r -> r) (z : r) ->
 -- >     fix {nat} {r} \(rec : nat -> r) (n : nat) ->
 -- >         unwrap n {r} z \(n' : nat) -> f (rec n')
-getBuiltinFoldrNat :: Quote (Term TyName Name ())
+getBuiltinFoldrNat :: Quote (Term dyn TyName Name ())
 getBuiltinFoldrNat = rename =<< do
     RecursiveType _ nat <- holedToRecursive <$> getBuiltinNat
     fix <- getBuiltinFix
@@ -103,7 +103,7 @@ getBuiltinFoldrNat = rename =<< do
 -- > /\(r :: *) -> \(f : r -> r) ->
 -- >     fix {r} {nat -> r} \(rec : r -> nat -> r) (z : r) (n : nat) ->
 -- >         unwrap n {r} z (\(n' : nat) -> rec (f z) n')
-getBuiltinFoldNat :: Quote (Term TyName Name ())
+getBuiltinFoldNat :: Quote (Term dyn TyName Name ())
 getBuiltinFoldNat = rename =<< do
     RecursiveType _ nat <- holedToRecursive <$> getBuiltinNat
     fix <- getBuiltinFix
@@ -133,7 +133,7 @@ getBuiltinFoldNat = rename =<< do
 -- >     foldNat {integer s}
 -- >         (addInteger {s} (resizeInteger {1} {s} ss 1!1))
 -- >         (resizeInteger {1} {s} ss 1!0)
-getBuiltinNatToInteger :: Quote (Term TyName Name ())
+getBuiltinNatToInteger :: Quote (Term dyn TyName Name ())
 getBuiltinNatToInteger = rename =<< do
     foldNat <- getBuiltinFoldNat
     s  <- freshTyName () "s"

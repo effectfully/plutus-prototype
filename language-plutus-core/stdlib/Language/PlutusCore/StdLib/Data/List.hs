@@ -46,7 +46,7 @@ getBuiltinList = do
 -- |  '[]' as a PLC term.
 --
 -- >  /\(a :: *) -> wrap /\(r :: *) -> \(z : r) (f : a -> list a -> r) -> z
-getBuiltinNil :: Quote (Term TyName Name ())
+getBuiltinNil :: Quote (Term dyn TyName Name ())
 getBuiltinNil = rename =<< do
     list <- getBuiltinList
     a <- freshTyName () "a"
@@ -67,7 +67,7 @@ getBuiltinNil = rename =<< do
 --
 -- > /\(a :: *) -> \(x : a) (xs : list a) ->
 -- >     wrap /\(r :: *) -> \(z : r) (f : a -> list a -> r) -> f x xs
-getBuiltinCons :: Quote (Term TyName Name ())
+getBuiltinCons :: Quote (Term dyn TyName Name ())
 getBuiltinCons = rename =<< do
     list <- getBuiltinList
     a  <- freshTyName () "a"
@@ -96,7 +96,7 @@ getBuiltinCons = rename =<< do
 -- > /\(a :: *) (r :: *) -> \(f : r -> a -> r) (z : r) ->
 -- >     fix {list a} {r} \(rec : list a -> r) (xs : list a) ->
 -- >         unwrap xs {r} z \(x : a) (xs' : list a) -> f (rec xs') x
-getBuiltinFoldrList :: Quote (Term TyName Name ())
+getBuiltinFoldrList :: Quote (Term dyn TyName Name ())
 getBuiltinFoldrList = rename =<< do
     list <- getBuiltinList
     fix  <- getBuiltinFix
@@ -131,7 +131,7 @@ getBuiltinFoldrList = rename =<< do
 -- > /\(a :: *) (r :: *) -> \(f : r -> a -> r) ->
 -- >     fix {r} {list a -> r} \(rec : r -> list a -> r) (z : r) (xs : list a) ->
 -- >         unwrap xs {r} z \(x : a) (xs' : list a) -> rec (f z x) xs'
-getBuiltinFoldList :: Quote (Term TyName Name ())
+getBuiltinFoldList :: Quote (Term dyn TyName Name ())
 getBuiltinFoldList = rename =<< do
     list <- getBuiltinList
     fix  <- getBuiltinFix
@@ -171,7 +171,7 @@ getBuiltinFoldList = rename =<< do
 -- >                 (nil {integer s})
 -- >                 (cons {integer s} n' (rec (succInteger {s} n'))))
 -- >         n
-getBuiltinEnumFromTo :: Quote (Term TyName Name ())
+getBuiltinEnumFromTo :: Quote (Term dyn TyName Name ())
 getBuiltinEnumFromTo = rename =<< do
     fix         <- getBuiltinFix
     succInteger <- getBuiltinSuccInteger
@@ -217,7 +217,7 @@ getBuiltinEnumFromTo = rename =<< do
 --
 -- > /\(s :: *) -> \(ss : size s) ->
 -- >     foldList {integer s} {integer s} (addInteger {s}) (resizeInteger {1} {s} ss 1!0)
-getBuiltinSum :: Quote (Term TyName Name ())
+getBuiltinSum :: Quote (Term dyn TyName Name ())
 getBuiltinSum = rename =<< do
     foldList <- getBuiltinFoldList
     s  <- freshTyName () "s"
@@ -237,7 +237,7 @@ getBuiltinSum = rename =<< do
 --
 -- > /\(s :: *) -> \(ss : size s) ->
 -- >     foldList {integer s} {integer s} (multiplyInteger {s}) (resizeInteger {1} {s} ss 1!1)
-getBuiltinProduct :: Quote (Term TyName Name ())
+getBuiltinProduct :: Quote (Term dyn TyName Name ())
 getBuiltinProduct = rename =<< do
     foldList <- getBuiltinFoldList
     s  <- freshTyName () "s"

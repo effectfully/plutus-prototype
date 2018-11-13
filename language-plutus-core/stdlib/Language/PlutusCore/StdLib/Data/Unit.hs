@@ -26,7 +26,7 @@ getBuiltinUnit = rename =<< do
 -- | '()' as a PLC term.
 --
 -- > /\(A :: *) -> \(x : A) -> x
-getBuiltinUnitval :: Quote (Value TyName Name ())
+getBuiltinUnitval :: Quote (Value dyn TyName Name ())
 getBuiltinUnitval = rename =<< do
     a <- freshTyName () "a"
     x <- freshName () "x"

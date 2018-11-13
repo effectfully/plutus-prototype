@@ -29,7 +29,7 @@ getBuiltinChurchNat = rename =<< do
 -- | Church-encoded '0' as a PLC term.
 --
 -- > /\(r :: *) -> \(z : r) (f : r -> r) -> z
-getBuiltinChurchZero :: Quote (Term TyName Name ())
+getBuiltinChurchZero :: Quote (Term dyn TyName Name ())
 getBuiltinChurchZero = rename =<< do
     r <- freshTyName () "r"
     z <- freshName () "z"
@@ -43,7 +43,7 @@ getBuiltinChurchZero = rename =<< do
 -- | Church-encoded 'succ' as a PLC term.
 --
 -- > \(n : nat) -> /\(r :: *) -> \(z : r) (f : r -> r) -> f (n {r} z f)
-getBuiltinChurchSucc :: Quote (Term TyName Name ())
+getBuiltinChurchSucc :: Quote (Term dyn TyName Name ())
 getBuiltinChurchSucc = rename =<< do
     nat <- getBuiltinChurchNat
     n <- freshName () "n"

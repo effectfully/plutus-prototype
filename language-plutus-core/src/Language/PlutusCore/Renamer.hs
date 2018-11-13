@@ -42,15 +42,15 @@ instance Monoid (TypeState a) where
 type TypeM a = StateT (TypeState a) (Either (RenameError a))
 
 -- | Annotate a PLC program, so that all names are annotated with their types/kinds.
-annotateProgram :: (MonadError (Error a) m) => Program TyName Name a -> m (Program TyNameWithKind NameWithType a)
+annotateProgram :: (MonadError (Error dyn a) m) => Program dyn TyName Name a -> m (Program dyn TyNameWithKind NameWithType a)
 annotateProgram (Program a v t) = Program a v <$> annotateTerm t
 
 -- | Annotate a PLC term, so that all names are annotated with their types/kinds.
-annotateTerm :: (MonadError (Error a) m) => Term TyName Name a -> m (Term TyNameWithKind NameWithType a)
+annotateTerm :: (MonadError (Error dyn a) m) => Term dyn TyName Name a -> m (Term dyn TyNameWithKind NameWithType a)
 annotateTerm t = fmap fst $ liftEither $ convertError $ runStateT (annotateT t) mempty
 
 -- | Annotate a PLC type, so that all names are annotated with their types/kinds.
-annotateType :: (MonadError (Error a) m) => Type TyName a -> m (Type TyNameWithKind a)
+annotateType :: (MonadError (Error dyn a) m) => Type TyName a -> m (Type TyNameWithKind a)
 annotateType t = fmap fst $ liftEither $ convertError $ runStateT (annotateTy t) mempty
 
 insertType :: Int -> Type TyNameWithKind a -> TypeM a ()
@@ -59,7 +59,7 @@ insertType = modify .* over terms .* IM.insert
 insertKind :: Int -> Kind a -> TypeM a ()
 insertKind = modify .* over types .* IM.insert
 
-annotateT :: Term TyName Name a -> TypeM a (RenamedTerm a)
+annotateT :: Term dyn TyName Name a -> TypeM a (RenamedTerm dyn a)
 annotateT (Var x (Name x' b (Unique u))) = do
     st <- gets _terms
     case IM.lookup u st of
@@ -158,11 +158,11 @@ instance HasUnique (tyname a) TypeUnique => Rename (Type tyname a) where
     rename = runDirectRenameM . renameTypeM
 
 instance (HasUnique (tyname a) TypeUnique, HasUnique (name a) TermUnique) =>
-        Rename (Term tyname name a) where
+        Rename (Term dyn tyname name a) where
     rename = runScopedRenameM . renameTermM
 
 instance (HasUnique (tyname a) TypeUnique, HasUnique (name a) TermUnique) =>
-        Rename (Program tyname name a) where
+        Rename (Program dyn tyname name a) where
     rename = runScopedRenameM . renameProgramM
 
 -- | The monad the renamer runs in.
@@ -238,7 +238,7 @@ renameTypeM ty@TyBuiltin{}              = pure ty
 -- | Rename a 'Term' in the 'RenameM' monad.
 renameTermM
     :: (HasUnique (tyname a) TypeUnique, HasUnique (name a) TermUnique)
-    => Term tyname name a -> RenameM ScopedUniquesRenaming (Term tyname name a)
+    => Term dyn tyname name a -> RenameM ScopedUniquesRenaming (Term dyn tyname name a)
 renameTermM (LamAbs ann name ty body)  =
     withRefreshed name $ \nameFr -> LamAbs ann nameFr <$> renameTypeM ty <*> renameTermM body
 renameTermM (Wrap ann name ty term)    =
@@ -255,5 +255,5 @@ renameTermM con@Constant{}             = pure con
 -- | Rename a 'Program' in the 'RenameM' monad.
 renameProgramM
     :: (HasUnique (tyname a) TypeUnique, HasUnique (name a) TermUnique)
-    => Program tyname name a -> RenameM ScopedUniquesRenaming (Program tyname name a)
+    => Program dyn tyname name a -> RenameM ScopedUniquesRenaming (Program dyn tyname name a)
 renameProgramM (Program ann ver term) = Program ann ver <$> renameTermM term
