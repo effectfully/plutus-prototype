@@ -70,13 +70,13 @@ gas f s = fmap (\x -> s { _gas = x }) (f (_gas s))
 -- We use this for annotating types of built-ins (both static and dynamic).
 annotateClosedNormalType
     :: MonadError (TypeError a) m
-    => a -> Constant () -> Type TyName () -> m (NormalizedType TyNameWithKind ())
+    => a -> Constant () -> Type TyName () -> m (NormAnnType ())
 annotateClosedNormalType ann con ty = case annotateType ty of
     Left  _           -> throwError . InternalTypeError ann $ OpenTypeOfBuiltin ty con
     Right annTyOfName -> pure $ NormalizedType annTyOfName
 
 -- | Look up a 'DynamicBuiltinName' in the 'DynBuiltinNameTypes' environment.
-lookupDynamicBuiltinName :: a -> DynamicBuiltinName -> TypeCheckM a (NormalizedType TyNameWithKind ())
+lookupDynamicBuiltinName :: a -> DynamicBuiltinName -> TypeCheckM a (NormAnnType ())
 lookupDynamicBuiltinName ann name = do
     dbnts <- asks $ unDynamicBuiltinNameTypes . _typeConfigDynBuiltinNameTypes
     case Map.lookup name dbnts of
@@ -98,7 +98,7 @@ lookupDynamicBuiltinType ann ty = do
 -- | Annotate the type of a 'BuiltinName' and return it wrapped in 'NormalizedType'.
 normalizedAnnotatedTypeOfBuiltinName
     :: (MonadError (TypeError a) m, MonadQuote m)
-    => a -> BuiltinName -> m (NormalizedType TyNameWithKind ())
+    => a -> BuiltinName -> m (NormAnnType ())
 normalizedAnnotatedTypeOfBuiltinName ann name = do
     tyOfName <- liftQuote $ typeOfBuiltinName name
     annotateClosedNormalType ann (BuiltinName () name) tyOfName
@@ -110,17 +110,15 @@ dynamicBuiltinNameMeaningsToTypes (DynamicBuiltinNameMeanings means) =
     DynamicBuiltinNameTypes $ fmap dynamicBuiltinNameMeaningToType means
 
 -- | Type-check a program, returning a normalized type.
-typecheckProgram :: (MonadError (Error a) m, MonadQuote m)
-                 => TypeCheckCfg
-                 -> Program TyNameWithKind NameWithType a
-                 -> m (NormalizedType TyNameWithKind ())
+typecheckProgram
+    :: (MonadError (Error a) m, MonadQuote m)
+    => TypeCheckCfg -> AnnProgram a -> m (NormAnnType ())
 typecheckProgram cfg (Program _ _ t) = typecheckTerm cfg t
 
 -- | Type-check a term, returning a normalized type.
-typecheckTerm :: (MonadError (Error a) m, MonadQuote m)
-              => TypeCheckCfg
-              -> Term TyNameWithKind NameWithType a
-              -> m (NormalizedType TyNameWithKind ())
+typecheckTerm
+    :: (MonadError (Error a) m, MonadQuote m)
+    => TypeCheckCfg -> AnnTerm a -> m (NormAnnType ())
 typecheckTerm cfg t = convertErrors asError $ runTypeCheckM cfg (typeOf t)
 
 -- | Kind-check a PLC type.
@@ -202,7 +200,7 @@ dummyType :: Type TyNameWithKind ()
 dummyType = TyVar () dummyTyName
 
 -- | Get the 'Type' of a 'Constant' wrapped in 'NormalizedType'.
-typeOfConstant :: Constant a -> TypeCheckM a (NormalizedType TyNameWithKind ())
+typeOfConstant :: Constant a -> TypeCheckM a (NormAnnType ())
 typeOfConstant (BuiltinInt  _ size _)    = pure $ applySizedNormalized TyInteger    size
 typeOfConstant (BuiltinBS   _ size _)    = pure $ applySizedNormalized TyByteString size
 typeOfConstant (BuiltinSize _ size)      = pure $ applySizedNormalized TySize       size
@@ -242,7 +240,7 @@ unique and so we will not delete the wrong thing.
 
 -- See the [Type rules] and [Type environments] notes.
 -- | Synthesize the type of a term, returning a normalized type.
-typeOf :: Term TyNameWithKind NameWithType a -> TypeCheckM a (NormalizedType TyNameWithKind ())
+typeOf :: AnnTerm a -> TypeCheckM a (NormAnnType ())
 
 -- v : ty    ty ~>? vTy
 -- --------------------
@@ -322,10 +320,7 @@ typeOf (Wrap x n pat term) = do
     pure $ TyFix () (void n) <$> vPat
 
 -- | Check a 'Term' against a 'NormalizedType'.
-typeCheckM :: a
-           -> Term TyNameWithKind NameWithType a
-           -> NormalizedType TyNameWithKind ()
-           -> TypeCheckM a ()
+typeCheckM :: a -> AnnTerm a -> NormAnnType () -> TypeCheckM a ()
 
 -- [infer| term : vTermTy]    vTermTy ~ vTy
 -- ----------------------------------------
@@ -336,7 +331,7 @@ typeCheckM x term vTy = do
 
 -- this will reduce a type, or simply wrap it in a 'NormalizedType' constructor
 -- if we are working with normalized type annotations
-normalizeTypeOpt :: Type TyNameWithKind () -> TypeCheckM a (NormalizedType TyNameWithKind ())
+normalizeTypeOpt :: Type TyNameWithKind () -> TypeCheckM a (NormAnnType ())
 normalizeTypeOpt ty = do
     typeConfig <- ask
     if _typeConfigNormalize typeConfig

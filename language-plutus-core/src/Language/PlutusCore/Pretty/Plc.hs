@@ -73,7 +73,8 @@ instance DefaultPrettyPlcStrategy a => DefaultPrettyBy PrettyConfigPlc a where
     defaultPrettyBy = defaultPrettyBy . _pcpStrategy
 
 instance PrettyBy PrettyConfigPlc (Kind a)
-instance Pretty dyn => PrettyBy PrettyConfigPlc (Constant dyn a)
+instance DefaultPrettyPlcStrategy (dyn a) =>
+    PrettyBy PrettyConfigPlc (Constant dyn a)
 instance DefaultPrettyPlcStrategy (Type tyname a) =>
     PrettyBy PrettyConfigPlc (Type tyname a)
 instance DefaultPrettyPlcStrategy (Term dyn tyname name a) =>

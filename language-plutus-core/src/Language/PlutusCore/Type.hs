@@ -32,12 +32,17 @@ module Language.PlutusCore.Type ( Term (..)
                                 , RenamedType
                                 , RenamedTerm
                                 , TyNameWithKind (..)
-                                -- * Normalized
+                                -- * Normalized & annotated
                                 , Normalized (..)
-                                -- * Backwards compatibility
-                                , NormalizedType
-                                , pattern NormalizedType
-                                , getNormalizedType
+                                , AnnType
+                                , NormAnnType (..)
+                                , AnnConstant
+                                , AnnTerm
+                                , AnnProgram
+                                -- -- * Backwards compatibility
+                                -- , NormalizedType
+                                -- , pattern NormalizedType
+                                -- , getNormalizedType
                                 ) where
 
 import qualified Data.ByteString.Lazy               as BSL
@@ -153,7 +158,7 @@ termMap f s = fmap (\x -> s { _termMap = x }) (f (_termMap s))
 tyMap :: Lens' (EqState tyname name a) (M.Map (tyname a) (tyname a))
 tyMap f s = fmap (\x -> s { _tyMap = x }) (f (_tyMap s))
 
-rebindAndEq :: (Eq dyn, Eq a, Ord (name a), Ord (tyname a))
+rebindAndEq :: (Eq (dyn a), Eq a, Ord (name a), Ord (tyname a))
             => EqState tyname name a
             -> Term dyn tyname name a
             -> Term dyn tyname name a
@@ -164,7 +169,7 @@ rebindAndEq eqSt tLeft tRight nLeft nRight =
     let intermediateSt = over termMap (M.insert nRight nLeft) eqSt
         in eqTermSt intermediateSt tLeft tRight
 
-eqTermSt :: (Eq dyn, Ord (name a), Ord (tyname a), Eq a)
+eqTermSt :: (Eq (dyn a), Ord (name a), Ord (tyname a), Eq a)
          => EqState tyname name a
          -> Term dyn tyname name a
          -> Term dyn tyname name a
@@ -205,7 +210,7 @@ eqTermSt eqSt (Var _ nRight) (Var _ nLeft) =
 
 eqTermSt _ _ _ = False
 
-instance (Eq dyn, Ord (tyname a), Ord (name a), Eq a) => Eq (Term dyn tyname name a) where
+instance (Eq (dyn a), Ord (tyname a), Ord (name a), Eq a) => Eq (Term dyn tyname name a) where
     (==) = eqTermSt emptyEqState
 
 
@@ -246,7 +251,7 @@ dyn := DynamicTerm
 data Constant dyn a = BuiltinInt a Natural Integer
                     | BuiltinBS a Natural BSL.ByteString
                     | BuiltinSize a Natural
-                    | BuiltinDyn a dyn
+                    | BuiltinDyn a (dyn a)
                     | BuiltinName a BuiltinName
                     | DynBuiltinName a DynamicBuiltinName
                     deriving (Functor, Show, Eq, Generic, NFData, Lift)
@@ -348,16 +353,30 @@ instance Applicative Normalized where
     pure = Normalized
     Normalized f <*> Normalized x = Normalized $ f x
 
-type NormalizedType tyname a = Normalized (Type tyname a)
+type AnnType = Type TyNameWithKind
 
-pattern NormalizedType :: Type tyname a -> NormalizedType tyname a
-pattern NormalizedType ty = Normalized ty
+newtype NormAnnType ann = NormAnnType
+    { unNormAnnType :: Normalized (AnnType ann)
+    } deriving (Show, Eq, Functor, Generic)
+      deriving newtype NFData
 
-getNormalizedType :: NormalizedType tyname a -> Type tyname a
-getNormalizedType (Normalized ty) = ty
+type AnnTerm     = Term     NormAnnType TyNameWithKind NameWithType
+type AnnConstant = Constant NormAnnType
+type AnnProgram  = Program  NormAnnType TyNameWithKind NameWithType
+
+-- type NormalizedType tyname a = Normalized (Type tyname a)
+
+-- pattern NormalizedType :: Type tyname a -> NormalizedType tyname a
+-- pattern NormalizedType ty = Normalized ty
+
+-- getNormalizedType :: NormalizedType tyname a -> Type tyname a
+-- getNormalizedType (Normalized ty) = ty
 
 instance PrettyBy config a => PrettyBy config (Normalized a) where
     prettyBy config (Normalized x) = prettyBy config x
+
+instance PrettyBy config (AnnType a) => PrettyBy config (NormAnnType a) where
+    prettyBy config (NormAnnType x) = prettyBy config x
 
 instance ( HasPrettyConfigName config
          , PrettyBy config (Kind a)

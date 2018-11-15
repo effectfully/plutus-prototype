@@ -42,15 +42,15 @@ instance Monoid (TypeState a) where
 type TypeM a = StateT (TypeState a) (Either (RenameError a))
 
 -- | Annotate a PLC program, so that all names are annotated with their types/kinds.
-annotateProgram :: (MonadError (Error dyn a) m) => Program dyn TyName Name a -> m (Program dyn TyNameWithKind NameWithType a)
+annotateProgram :: (MonadError (Error a) m) => Program dyn TyName Name a -> m (Program dyn TyNameWithKind NameWithType a)
 annotateProgram (Program a v t) = Program a v <$> annotateTerm t
 
 -- | Annotate a PLC term, so that all names are annotated with their types/kinds.
-annotateTerm :: (MonadError (Error dyn a) m) => Term dyn TyName Name a -> m (Term dyn TyNameWithKind NameWithType a)
+annotateTerm :: (MonadError (Error a) m) => Term dyn TyName Name a -> m (Term dyn TyNameWithKind NameWithType a)
 annotateTerm t = fmap fst $ liftEither $ convertError $ runStateT (annotateT t) mempty
 
 -- | Annotate a PLC type, so that all names are annotated with their types/kinds.
-annotateType :: (MonadError (Error dyn a) m) => Type TyName a -> m (Type TyNameWithKind a)
+annotateType :: (MonadError (Error a) m) => Type TyName a -> m (Type TyNameWithKind a)
 annotateType t = fmap fst $ liftEither $ convertError $ runStateT (annotateTy t) mempty
 
 insertType :: Int -> Type TyNameWithKind a -> TypeM a ()

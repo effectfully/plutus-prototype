@@ -35,13 +35,14 @@ instance PrettyBy (PrettyConfigClassic configName) (Kind a) where
         a SizeF{}             = "(size)"
         a (KindArrowF _ k k') = parens ("fun" <+> k <+> k')
 
-instance Pretty dyn => PrettyBy (PrettyConfigClassic configName) (Constant dyn a) where
-    prettyBy _ (BuiltinInt _ s i)   = pretty s <+> "!" <+> pretty i
-    prettyBy _ (BuiltinSize _ s)    = pretty s
-    prettyBy _ (BuiltinBS _ s b)    = pretty s <+> "!" <+> prettyBytes b
-    prettyBy _ (BuiltinDyn _ dyn)   = pretty dyn
-    prettyBy _ (BuiltinName    _ n) = pretty n
-    prettyBy _ (DynBuiltinName _ n) = pretty n
+instance PrettyClassicBy configName (dyn a) =>
+        PrettyBy (PrettyConfigClassic configName) (Constant dyn a) where
+    prettyBy _      (BuiltinInt _ s i)   = pretty s <+> "!" <+> pretty i
+    prettyBy _      (BuiltinSize _ s)    = pretty s
+    prettyBy _      (BuiltinBS _ s b)    = pretty s <+> "!" <+> prettyBytes b
+    prettyBy config (BuiltinDyn _ dyn)   = prettyBy config dyn
+    prettyBy _      (BuiltinName    _ n) = pretty n
+    prettyBy _      (DynBuiltinName _ n) = pretty n
 
 instance PrettyClassicBy configName (tyname a) =>
         PrettyBy (PrettyConfigClassic configName) (Type tyname a) where
@@ -57,8 +58,10 @@ instance PrettyClassicBy configName (tyname a) =>
 
         prettyName = prettyBy config
 
-instance (Pretty dyn, PrettyClassicBy configName (tyname a), PrettyClassicBy configName (name a)) =>
-        PrettyBy (PrettyConfigClassic configName) (Term dyn tyname name a) where
+instance ( PrettyClassicBy configName (dyn a)
+         , PrettyClassicBy configName (tyname a)
+         , PrettyClassicBy configName (name a)
+         ) => PrettyBy (PrettyConfigClassic configName) (Term dyn tyname name a) where
     prettyBy config = cata a where
         a (ConstantF _ b)    = parens' ("con" </> prettyBy config b)
         a (ApplyF _ t t')    = brackets' (vsep' [t, t'])

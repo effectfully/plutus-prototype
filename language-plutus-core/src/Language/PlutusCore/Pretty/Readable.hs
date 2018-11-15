@@ -209,12 +209,13 @@ instance PrettyBy (PrettyConfigReadable configName) (Kind a) where
         Size{}          -> unitaryDoc config "size"
         KindArrow _ k l -> arrowDoc   config k l
 
-instance Pretty dyn => PrettyBy (PrettyConfigReadable configName) (Constant dyn a) where
+instance PrettyReadableBy configName (dyn a) =>
+        PrettyBy (PrettyConfigReadable configName) (Constant dyn a) where
     prettyBy config = unitaryDoc config . \case
         BuiltinInt _ size int -> pretty size <> "!" <> pretty int
         BuiltinSize _ size    -> pretty size
         BuiltinBS _ size bs   -> pretty size <> "!" <> prettyBytes bs
-        BuiltinDyn _ dyn      -> pretty dyn
+        BuiltinDyn _ dyn      -> prettyBy config dyn
         BuiltinName    _ name -> pretty name
         DynBuiltinName _ name -> pretty name
 
@@ -238,8 +239,10 @@ instance PrettyReadableBy configName (tyname a) =>
         bind = binderDoc  config
         inBot = prettyInBotBy config
 
-instance (Pretty dyn, PrettyReadableBy configName (tyname a), PrettyReadableBy configName (name a)) =>
-        PrettyBy (PrettyConfigReadable configName) (Term dyn tyname name a) where
+instance ( PrettyReadableBy configName (dyn a)
+         , PrettyReadableBy configName (tyname a)
+         , PrettyReadableBy configName (name a)
+         ) => PrettyBy (PrettyConfigReadable configName) (Term dyn tyname name a) where
     prettyBy config = \case
         Constant _ con         -> prettyBy config con
         Apply _ fun arg        -> applicationDoc config fun arg

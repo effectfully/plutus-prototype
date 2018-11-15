@@ -24,6 +24,7 @@ import           Language.PlutusCore.Pretty
 import           Language.PlutusCore.Type
 import           PlutusPrelude
 
+import           Data.Functor.Identity
 import qualified Data.Text                          as T
 import           Data.Text.Prettyprint.Doc.Internal (Doc (Text))
 
@@ -53,26 +54,24 @@ newtype UnknownDynamicBuiltinError dyn
     deriving newtype (NFData)
 
 -- | An internal error occurred during type checking.
-data InternalTypeError dyn a
-    = OpenTypeOfBuiltin (Type TyName ()) (Constant dyn ())
+data InternalTypeError a
+    = OpenTypeOfBuiltin (Type TyName ()) (AnnConstant ())
     deriving (Show, Eq, Generic, NFData)
 
-data TypeError dyn a
-    = KindMismatch a (Type TyNameWithKind ()) (Kind ()) (Kind ())
-    | TypeMismatch a (Term dyn TyNameWithKind NameWithType ())
-                     (Type TyNameWithKind ())
-                     (NormalizedType TyNameWithKind ())
+data TypeError a
+    = KindMismatch a (AnnType ()) (Kind ()) (Kind ())
+    | TypeMismatch a (AnnTerm ()) (AnnType ()) (NormAnnType ())
     | UnknownDynamicBuiltinName a (UnknownDynamicBuiltinError DynamicBuiltinName)
     | UnknownDynamicBuiltinType a (UnknownDynamicBuiltinError DynamicBuiltinType)
-    | InternalTypeError a (InternalTypeError dyn a)
+    | InternalTypeError a (InternalTypeError a)
     | OutOfGas
     deriving (Show, Eq, Generic, NFData)
 
-data Error dyn a
+data Error a
     = ParseError (ParseError a)
     | RenameError (RenameError a)
-    | TypeError (TypeError dyn a)
-    | NormalizationError (NormalizationError dyn TyName Name a)
+    | TypeError (TypeError a)
+    | NormalizationError (NormalizationError Identity TyName Name a)
     deriving (Show, Eq, Generic, NFData)
 
 asInternalError :: Doc ann -> Doc ann
@@ -80,25 +79,25 @@ asInternalError doc =
     "An internal error has occurred:" <+> doc <> hardline <>
     "Please report this as a bug."
 
-class IsError f dyn where
-    asError :: f a -> Error dyn a
+class IsError f where
+    asError :: f a -> Error a
 
-convertError :: IsError f dyn => Either (f a) b -> Either (Error dyn a) b
+convertError :: IsError f => Either (f a) b -> Either (Error a) b
 convertError = first asError
 
-instance dyn1 ~ dyn2 => IsError (Error dyn1) dyn2 where
+instance IsError Error where
     asError = id
 
-instance IsError ParseError dyn where
+instance IsError ParseError where
     asError = ParseError
 
-instance IsError RenameError dyn where
+instance IsError RenameError where
     asError = RenameError
 
-instance dyn1 ~ dyn2 => IsError (TypeError dyn1) dyn2 where
+instance IsError TypeError where
     asError = TypeError
 
-instance dyn1 ~ dyn2 => IsError (NormalizationError dyn1 TyName Name) dyn2 where
+instance IsError (NormalizationError Identity TyName Name) where
     asError = NormalizationError
 
 instance Pretty a => Pretty (ParseError a) where
@@ -131,14 +130,14 @@ instance Pretty dyn => Pretty (UnknownDynamicBuiltinError dyn) where
     pretty (UnknownDynamicBuiltinError dyn) =
         "Scope resolution failed on a dynamic built-in:" <+> pretty dyn
 
-instance Pretty dyn => PrettyBy PrettyConfigPlc (InternalTypeError dyn a) where
-    prettyBy config (OpenTypeOfBuiltin ty con)        =
+instance PrettyBy PrettyConfigPlc (InternalTypeError a) where
+    prettyBy config (OpenTypeOfBuiltin ty con) =
         asInternalError $
             "The type" <+> prettyBy config ty <+>
             "of the" <+> prettyBy config con <+>
             "built-in is open"
 
-instance (Pretty dyn, Pretty a) => PrettyBy PrettyConfigPlc (TypeError dyn a) where
+instance Pretty a => PrettyBy PrettyConfigPlc (TypeError a) where
     prettyBy config (KindMismatch x ty k k')            =
         "Kind mismatch at" <+> pretty x <+>
         "in type" <+> squotes (prettyBy config ty) <>
@@ -164,8 +163,9 @@ instance (Pretty dyn, Pretty a) => PrettyBy PrettyConfigPlc (TypeError dyn a) wh
         ":" <+> pretty err
     prettyBy _      OutOfGas                            = "Type checker ran out of gas."
 
-instance (Pretty dyn, Pretty a) => PrettyBy PrettyConfigPlc (Error dyn a) where
+instance Pretty a => PrettyBy PrettyConfigPlc (Error a) where
     prettyBy _      (ParseError e)         = pretty e
     prettyBy config (RenameError e)        = prettyBy config e
     prettyBy config (TypeError e)          = prettyBy config e
-    prettyBy config (NormalizationError e) = prettyBy config e
+    -- TODO: fix me.
+    prettyBy config (NormalizationError e) = undefined -- prettyBy config e
