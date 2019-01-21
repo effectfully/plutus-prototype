@@ -1,13 +1,16 @@
-{-# LANGUAGE DeriveAnyClass         #-}
-{-# LANGUAGE DerivingStrategies     #-}
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
-{-# LANGUAGE OverloadedStrings      #-}
-{-# LANGUAGE TemplateHaskell        #-}
-{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE DeriveAnyClass          #-}
+{-# LANGUAGE DerivingStrategies      #-}
+{-# LANGUAGE FlexibleInstances       #-}
+{-# LANGUAGE FunctionalDependencies  #-}
+{-# LANGUAGE MultiParamTypeClasses   #-}
+{-# LANGUAGE OverloadedStrings       #-}
+{-# LANGUAGE TemplateHaskell         #-}
+{-# LANGUAGE UndecidableInstances    #-}
 -- appears in the generated instances
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
+
+{-# LANGUAGE TypeFamilies            #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Language.PlutusCore.Error
     ( ParseError (..)
@@ -101,6 +104,31 @@ data Error a
     deriving (Show, Eq, Generic, NFData)
 makeClassyPrisms ''Error
 
+-- AsValueRestrictionErrorProxy error proxy | error -> proxy
+
+{-
+class AsNormalizationError r
+                           (tyname :: * -> *)
+                           (name :: * -> *)
+                           a | r -> tyname name a where
+  _NormalizationError :: Control.Lens.Type.Prism'
+                           r (NormalizationError tyname name a)
+-}
+
+class (ErrorLayer layer (ErrorProxy layer error), ErrorLayer (ErrorProxy layer error) error) =>
+        ErrorLayer layer error where
+    type ErrorProxy layer error
+
+    _LayerError :: Prism' error layer
+
+-- class UniqueSubError sub err | err -> sub where
+--     blah :: ()
+
+-- -- <:
+-- instance (UniqueSubError sub err, AsNormalizationError sub tyname name a) =>
+--         AsNormalizationError err tyname name a where
+--     _NormalizationError = _ . _NormalizationError
+
 instance AsParseError (Error a) a where
     _ParseError = _ParseErrorE
 
@@ -110,8 +138,8 @@ instance AsUniqueError (Error a) a where
 instance AsTypeError (Error a) a where
     _TypeError = _TypeErrorE
 
-instance AsNormalizationError (Error a) TyName Name a where
-    _NormalizationError = _NormalizationErrorE
+-- instance AsNormalizationError (Error a) TyName Name a where
+--     _NormalizationError = _NormalizationErrorE
 
 asInternalError :: Doc ann -> Doc ann
 asInternalError doc =
