@@ -1,7 +1,8 @@
 {-# LANGUAGE DataKinds              #-}
--- {-# LANGUAGE TypeInType #-}
+{-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE PolyKinds              #-}
 -- | This module defines types and functions related to "type-eval checking".
 
 {-# LANGUAGE FlexibleInstances      #-}
@@ -10,6 +11,9 @@
 {-# LANGUAGE OverloadedStrings      #-}
 {-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE UndecidableInstances   #-}
+
+{-# LANGUAGE ConstraintKinds        #-}
+{-# LANGUAGE GADTs                  #-}
 
 module Language.PlutusCore.Generators.Internal.TypeEvalCheck where
 {-    ( TypeEvalCheckError (..)
@@ -31,6 +35,10 @@ import           PlutusPrelude
 import           Control.Lens.TH
 import           Control.Monad.Except
 import           Data.Traversable
+
+import           Data.Proxy
+
+import           GHC.Exts                                                (Constraint)
 
 {-
 
@@ -104,8 +112,9 @@ unsafeTypeEvalCheck termOfTbv = do
 
 data Err1 = Err1
 data Err2 = Err2
-data Err3 = Err3_1 Err1 | Err3_2 Err2
-newtype Err4 = Err4_3 Err3
+data Err3 = Err31 Err1 | Err32 Err2
+newtype Err4 = Err43 Err3
+newtype Err5 = Err52 Err2
 
 
 -- class b <: c where
@@ -139,15 +148,217 @@ newtype Err4 = Err4_3 Err3
 
 --------------------
 
-type family SubStep a :: [*]
+
+data SList as where
+    SNil  :: SList '[]
+    SCons :: Proxy a -> SList as -> SList (a ': as)
+
+class IList as where
+    slist :: SList as
+
+instance IList '[] where
+    slist = SNil
+
+instance IList as => IList (a ': as) where
+    slist = SCons Proxy slist
+
+type family SubtypeOf a :: [*]
+
+type family MapCons a (ass :: [[k]]) where
+    MapCons a '[]         = '[]
+    MapCons a (as ': ass) = (a ': as) ': MapCons a ass
+
+type family Head (as :: [k]) :: k where
+    Head (a ': _) = a
+
+-- SubtypeOf b :: [*]
+--
+-- Path a b :: [[*]]
+
+type family ConcatMapPath
+
+type family Path a b :: [[*]] where
+    Path a a = '[[]]
+    Path a b = _ (SubtypeOf b)
+
+type family Connect a (bs :: [*]) c :: Constraint where
+    Connect a '[]       c = a ~ c
+    Connect a (b ': bs) c = (a <: b, Connect b bs c)
+
+upcastProxy :: a <: b => proxy a -> proxy b -> a -> b
+upcastProxy _ _ = upcast
+
+upcastBy :: forall a ps b. Connect a ps b => SList ps -> a -> b
+upcastBy  SNil        x = x
+upcastBy (SCons p ps) x = upcastBy ps $ upcastProxy Proxy p x
 
 class a <: b where
-    type SubStar a b :: [*]
-    type SubStar a b = a ': SubStep a
     upcast :: a -> b
 
-type instance SubStep Err3 = '[Err1, Err2]
-type instance SubStep Err4 = '[Err3]
+instance (Connect a (Path a b) b, IList (Path a b)) => a <: b where
+    upcast = upcastBy (slist :: SList (Path a b))
+
+{-
+## Current situation
+
+Right now we use `Control.Monad.Error.Lens` and there are a number of problems with it.
+
+I've recently added the value restriction check and now the type signature of `parseTypecheck` looks like this:
+
+```haskell
+parseTypecheck
+    :: (AsParseError e AlexPosn,
+        AsValueRestrictionError e TyName AlexPosn,
+        AsUniqueError e AlexPosn,
+        AsNormalizationError e TyName Name AlexPosn,
+        AsTypeError e AlexPosn,
+        MonadError e m,
+        MonadQuote m)
+    => TypeCheckConfig -> BSL.ByteString -> m (NormalizedType TyName ())
+```
+
+This is quite unwieldy. Moreover, `printType`, `printNormalizeType` and `parseScoped` -- all of them needed to be updated. What we really want to write is
+
+```haskell
+parseTypecheck
+    :: (AsError e AlexPosn,
+        MonadError e m,
+        MonadQuote m)
+    => TypeCheckConfig -> BSL.ByteString -> m (NormalizedType TyName ())
+```
+
+Where `AsError` subsumes all the other errors as it's actually defined like that.
+
+So we get an O(n) overhead in O(m) functions, that's a O(n*m) overhead in total, which is pretty bad.
+
+In addition to this overhead, we also need to write boilerplate like
+
+```haskell
+instance ann ~ () => AsError TypeEvalCheckError ann where
+    _Error = _TypeEvalCheckErrorIllFormed . _Error
+
+instance (tyname ~ TyName, ann ~ ()) => AsValueRestrictionError TypeEvalCheckError tyname ann where
+    _ValueRestrictionError = _TypeEvalCheckErrorIllFormed . _ValueRestrictionError
+```
+
+We know that `AsError err ann` implies `AsValueRestrictionError err tyname ann`, but the current approach does not allow to communicate this information to the compiler.
+
+## Description of the problem
+
+Arbitrary error types form the following DAG:
+
+```
+                 ...
+                   \
+Err6     ...        Err7
+    \    /         /    \
+     Err4      Err5      \
+    /    \    /    \      \
+ ...      Err1      Err2   Err3
+                          /
+                      Err8
+```
+
+There shouldn't be any "diamonds" (a "diamond" means that an error can be embedded into another error via distinct constructors). What we would like to have is a system where you can say that the children of `Err7` are `Err5` and `Err3` (denoted as `Err3 <: Err7` and `Err5 <: 7`) and automatically get `Err1 <: Err7`. `Err2 <: Err7`, `Err3 <: Err7`, so that you can directly throw an `Err1` in a context that allows to throw `Err7`.
+
+## An example
+
+We'll be using the following example to show how various approaches work:
+
+```haskell
+data Err1 = Err1
+data Err2 = Err2
+data Err3 = Err31 Err1 | Err32 Err2
+newtype Err4 = Err43 Err3
+newtype Err5 = Err52 Err2
+```
+
+which forms the following DAG:
+
+```
+      Err4
+        |
+      Err3      Err5
+     /    \    /
+ Err1      Err2
+```
+
+## A non-solution
+
+Bottom-up type inference:
+
+```haskell
+type family SupertypeOf e
+type instance SupertypeOf Err1 = Err3
+type instance SupertypeOf Err2 = Err3
+type instance SupertypeOf Err2 = Err5
+type instance SupertypeOf Err3 = Err4
+```
+
+Here we define a single type family `SupertypeOf` and specify the super type of each of the errors.
+
+"What do you mean "the" supertype? There can be many!"
+"Wait a minute, `Err2` does have two supertypes, these type family instances are incorrect! There can be only one instance per type."
+
+Yep, but if we define those type instances in different files, then we're fine. This means that we won't be able to use `Err3` and `Err5` in the same file, but maybe this is acceptable sometimes.
+
+But this approach is super fragile and my mom told me to be a responsible person and never cheat on my compiler, so we won't implement that.
+
+## An imaginary solution
+
+It would be just great, if it was possible to write the following (I'm using functions as opposed to prisms for simplicity):
+
+```haskell
+class SuperOfErr1 a where
+  upcastErr1 :: Err1 -> a
+
+class SuperOfErr1 a => SuperOfErr3 a where
+  upcastErr3 :: Err3 -> a
+
+  instance SuperOfErr1 a where
+    upcastErr1 = upcastErr3 . Err3_1
+```
+
+Here we declare two classes, `SuperOfErr1` and `SuperOfErr3`, and say that any `SuperOfErr3 a` instance also brings in scope the `SuperOfErr1 a` instance. And we don't need to manually satisfy the `SuperOfErr1 a` constraint of `SuperOfErr3 a` -- it's satisfied automatically!
+
+Unfortunately, this feature does not seem to exist and I'm not able to emulate it in any way.
+
+## A possible solution
+
+But what about top-down inference? We can have the following type family:
+
+```haskell
+type family SubtypeOf a :: [*]
+type instance SubtypeOf Err3 = '[Err1, Err2]
+type instance SubtypeOf Err4 = '[Err3]
+```
+
+I.e. describe
+-}
+
+
+
+
+{-
+case slist :: SList (Path a b) of
+        SNil       -> x
+        SCons p ps -> _
+-}
+
+type instance SubtypeOf Err3 = '[Err1, Err2]
+type instance SubtypeOf Err4 = '[Err3]
+
+--       Err4
+--         |
+--       Err3      Err5
+--      /    \    /
+--  Err1      Err2
+
+-- type family SupertypeOf e
+-- type instance SupertypeOf Err1 = Err3
+-- type instance SupertypeOf Err2 = Err3
+-- type instance SupertypeOf Err2 = Err5
+-- type instance SupertypeOf Err3 = Err4
 
 -- lookup (Err1, b) (SubStep b)
 
