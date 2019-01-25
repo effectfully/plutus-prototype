@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilies           #-}
@@ -110,11 +111,11 @@ unsafeTypeEvalCheck termOfTbv = do
 
 
 
-data Err1 = Err1
-data Err2 = Err2
-data Err3 = Err31 Err1 | Err32 Err2
-newtype Err4 = Err43 Err3
-newtype Err5 = Err52 Err2
+data Err1 = Err1                    deriving (Show)
+data Err2 = Err2                    deriving (Show)
+data Err3 = Err31 Err1 | Err32 Err2 deriving (Show)
+newtype Err4 = Err43 Err3           deriving (Show)
+newtype Err5 = Err52 Err2           deriving (Show)
 
 
 -- class b <: c where
@@ -164,39 +165,98 @@ instance IList as => IList (a ': as) where
 
 type family SubtypeOf a :: [*]
 
-type family MapCons a (ass :: [[k]]) where
-    MapCons a '[]         = '[]
-    MapCons a (as ': ass) = (a ': as) ': MapCons a ass
-
 type family Head (as :: [k]) :: k where
     Head (a ': _) = a
 
--- SubtypeOf b :: [*]
---
--- Path a b :: [[*]]
+type family Append as bs :: [k] where
+    Append '[]       bs = bs
+    Append (a ': as) bs = a ': Append as bs
 
-type family ConcatMapPath
+type family ConcatMapPaths p a bs :: [[*]] where
+    ConcatMapPaths p a '[]       = '[]
+    ConcatMapPaths p a (b ': bs) = Append (Paths p a b) (ConcatMapPaths p a bs)
 
-type family Path a b :: [[*]] where
-    Path a a = '[[]]
-    Path a b = _ (SubtypeOf b)
+type family Paths p a b :: [[*]] where
+    Paths p a a = p ': '[]
+    Paths p a b = ConcatMapPaths (b ': p) a (SubtypeOf b)
+
+type family Path a b where
+    Path a b = Head (Paths '[] a b)
+
+class a <! b where
+    upcastDirect :: a -> b
 
 type family Connect a (bs :: [*]) c :: Constraint where
     Connect a '[]       c = a ~ c
-    Connect a (b ': bs) c = (a <: b, Connect b bs c)
+    Connect a (b ': bs) c = (a <! b, Connect b bs c)
 
-upcastProxy :: a <: b => proxy a -> proxy b -> a -> b
-upcastProxy _ _ = upcast
+upcastDirectTo :: a <! b => proxy b -> a -> b
+upcastDirectTo _ = upcastDirect
 
-upcastBy :: forall a ps b. Connect a ps b => SList ps -> a -> b
+upcastBy :: Connect a ps b => SList ps -> a -> b
 upcastBy  SNil        x = x
-upcastBy (SCons p ps) x = upcastBy ps $ upcastProxy Proxy p x
+upcastBy (SCons p ps) x = upcastBy ps $ upcastDirectTo p x
 
 class a <: b where
     upcast :: a -> b
 
 instance (Connect a (Path a b) b, IList (Path a b)) => a <: b where
     upcast = upcastBy (slist :: SList (Path a b))
+
+-- expected: A <: c
+-- have: A <: B, B <: c
+
+-- expected: Connect A (Path A c) c, IList (Path A c)
+-- have: Connect A (Path A B) B, IList (Path A B)
+--       Connect B (Path B c) c, IList (Path B c)
+
+-- prove: Path a c == Path a b ++ Path b c
+
+-- expected: Connect a (ps ++ qs) c, IList (ps ++ qs)
+-- have: Connect a ps b, IList ps
+--       Connect b qs c, IList qs
+
+
+withTrans :: forall a b c r. (a <: b, b <: c) => Proxy (a, b, c) -> (a <: c => r) -> r
+withTrans _ = go (slist :: SList (Path b c)) where
+    go :: SList ps
+       -> ((Connect a ps c, IList ps) => r)
+       -> r
+    go  SNil        r = _
+    go (SCons p ps) r = _
+
+type instance SubtypeOf Err1 = '[]
+type instance SubtypeOf Err2 = '[]
+type instance SubtypeOf Err3 = '[Err1, Err2]
+type instance SubtypeOf Err4 = '[Err3]
+type instance SubtypeOf Err5 = '[Err2]
+
+instance Err1 <! Err3 where
+    upcastDirect = Err31
+
+instance Err2 <! Err3 where
+    upcastDirect = Err32
+
+instance Err3 <! Err4 where
+    upcastDirect = Err43
+
+instance Err2 <! Err5 where
+    upcastDirect = Err52
+
+test1 :: Err1 -> Err3
+test1 = upcast
+
+test2 :: Err2 -> Err3
+test2 = upcast
+
+test3 :: Err1 -> Err4
+test3 = upcast
+
+test4 :: Err2 -> Err4
+test4 = upcast
+
+test5 :: Err2 -> Err5
+test5 = upcast
 
 {-
 ## Current situation
@@ -333,20 +393,11 @@ type instance SubtypeOf Err3 = '[Err1, Err2]
 type instance SubtypeOf Err4 = '[Err3]
 ```
 
+<end_of_the_manuscript>
+
 I.e. describe
 -}
 
-
-
-
-{-
-case slist :: SList (Path a b) of
-        SNil       -> x
-        SCons p ps -> _
--}
-
-type instance SubtypeOf Err3 = '[Err1, Err2]
-type instance SubtypeOf Err4 = '[Err3]
 
 --       Err4
 --         |
