@@ -164,22 +164,23 @@ instance IList as => IList (a ': as) where
 
 type family SubtypeOf a :: [*]
 
-type family MapCons a (ass :: [[k]]) where
-    MapCons a '[]         = '[]
-    MapCons a (as ': ass) = (a ': as) ': MapCons a ass
-
 type family Head (as :: [k]) :: k where
     Head (a ': _) = a
 
--- SubtypeOf b :: [*]
---
--- Path a b :: [[*]]
+type family Append as bs :: [k] where
+    Append '[]       bs = bs
+    Append (a ': as) bs = a ': Append as bs
 
-type family ConcatMapPath
+type family ConcatMapPaths p a bs :: [[*]] where
+    ConcatMapPaths p a '[]       = '[]
+    ConcatMapPaths p a (b ': bs) = Append (Paths p a b) (ConcatMapPaths p a bs)
 
-type family Path a b :: [[*]] where
-    Path a a = '[[]]
-    Path a b = _ (SubtypeOf b)
+type family Paths p a b :: [[*]] where
+    Paths p a a = p ': '[]
+    Paths p a b = ConcatMapPaths (b ': p) a (SubtypeOf b)
+
+type family Path a b where
+    Path a b = Head (Paths '[] a b)
 
 type family Connect a (bs :: [*]) c :: Constraint where
     Connect a '[]       c = a ~ c
@@ -197,6 +198,27 @@ class a <: b where
 
 instance (Connect a (Path a b) b, IList (Path a b)) => a <: b where
     upcast = upcastBy (slist :: SList (Path a b))
+
+type instance SubtypeOf Err1 = '[]
+type instance SubtypeOf Err2 = '[]
+type instance SubtypeOf Err3 = '[Err1, Err2]
+type instance SubtypeOf Err4 = '[Err3]
+type instance SubtypeOf Err5 = '[Err2]
+
+test1 :: Err1 -> Err3
+test1 = upcast
+
+test2 :: Err2 -> Err3
+test2 = upcast
+
+test3 :: Err1 -> Err4
+test3 = upcast
+
+test4 :: Err2 -> Err4
+test4 = upcast
+
+test5 :: Err2 -> Err5
+test5 = upcast
 
 {-
 ## Current situation
@@ -336,17 +358,6 @@ type instance SubtypeOf Err4 = '[Err3]
 I.e. describe
 -}
 
-
-
-
-{-
-case slist :: SList (Path a b) of
-        SNil       -> x
-        SCons p ps -> _
--}
-
-type instance SubtypeOf Err3 = '[Err1, Err2]
-type instance SubtypeOf Err4 = '[Err3]
 
 --       Err4
 --         |
