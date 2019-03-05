@@ -2,33 +2,38 @@
 -- See the @plutus/language-plutus-core/docs/Constant application.md@
 -- article for how this emerged.
 
+{-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE KindSignatures            #-}
 {-# LANGUAGE LambdaCase                #-}
 {-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE PolyKinds                 #-}
 {-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE TypeApplications          #-}
 
-module Language.PlutusCore.Constant.Typed
-    ( BuiltinSized (..)
-    , TypedBuiltinSized (..)
-    , SizeEntry (..)
-    , BuiltinType (..)
-    , TypedBuiltin (..)
-    , TypedBuiltinValue (..)
-    , TypeScheme (..)
-    , TypedBuiltinName (..)
-    , DynamicBuiltinNameMeaning (..)
-    , DynamicBuiltinNameDefinition (..)
-    , DynamicBuiltinNameMeanings (..)
-    , Evaluator
-    , Evaluate
-    , Convert
-    , KnownDynamicBuiltinType (..)
-    , eraseTypedBuiltinSized
-    , runEvaluate
-    , withEvaluator
-    , readDynamicBuiltinM
-    ) where
+module Language.PlutusCore.Constant.Typed where
+--     ( {- BuiltinSized (..)
+--     , TypedBuiltinSized (..)
+--     , SizeEntry (..)
+--     , BuiltinType (..) -}
+--     --   TypedBuiltin (..)
+--     -- , TypedBuiltinValue (..)
+--       TypeScheme (..)
+--     , TypedBuiltinName (..)
+--     , DynamicBuiltinNameMeaning (..)
+--     , DynamicBuiltinNameDefinition (..)
+--     , DynamicBuiltinNameMeanings (..)
+--     , Evaluator
+--     , Evaluate
+--     , Convert
+--     , KnownType (..)
+--     , eraseTypedBuiltinSized
+--     , runEvaluate
+--     , withEvaluator
+--     , readKnownM
+--     ) where
 
 import           Language.PlutusCore.Constant.Dynamic.Pretty
 import           Language.PlutusCore.Evaluation.Result
@@ -43,114 +48,78 @@ import           Control.Monad.Except
 import           Control.Monad.Reader
 import qualified Data.ByteString.Lazy.Char8                  as BSL
 import           Data.Map                                    (Map)
+import           Data.Proxy
 import           Data.Text                                   (Text)
+import           GHC.TypeNats
 
 infixr 9 `TypeSchemeArrow`
 
--- | Built-in types indexed by @size@.
-data BuiltinSized
-    = BuiltinSizedInt
-    | BuiltinSizedBS
-    | BuiltinSizedSize
-    deriving (Show, Eq)
+-- newtype OfSize (s :: k) a = OfSize
+--     { unOfSize :: a
+--     }
 
--- | Built-in types indexed by @size@ along with their denotation.
-data TypedBuiltinSized a where
-    TypedBuiltinSizedInt  :: TypedBuiltinSized Integer
-    TypedBuiltinSizedBS   :: TypedBuiltinSized BSL.ByteString
-    -- See Note [Semantics of sizes].
-    TypedBuiltinSizedSize :: TypedBuiltinSized ()
+newtype Sized a (s :: k) = Sized
+    { unSized :: a
+    }
 
-{- Note [Semantics of sizes]
-We convert each PLC's @size s@ into Haskell's '()'. I.e. sizes are completely ignored in
-the semantics of various built-ins. Hence the Haskell's type signature of PLC's 'resizeInteger' is
+data BuiltinPipe
+    = BuiltinPipeRes (forall m. Monad m => Evaluate (ConvertT m) (Maybe (Term TyName Name ())))
+    | BuiltinPipeAll (Type TyName ()      -> BuiltinPipe)
+    | BuiltinPipeArg (Term TyName Name () -> BuiltinPipe)
 
-    () -> Integer -> Integer
+withReadSize
+    :: Type TyName ann
+    -> (forall s. KnownNat s => Proxy s -> Evaluate (ConvertT m) c)
+    -> Evaluate (ConvertT m) c
+withReadSize _ _ = undefined
 
-while its PLC signature is
-
-    forall s0 s1. size s1 -> integer s0 -> integer s1
-
-This does not mean that we do not perform all the checks prescribed by the specification.
-Merely that we can't compute using sizes on the Haskell side, e.g. we cannot assign a semantics to
-
-    maxIntegerOfGivenSize : forall s. size s -> integer s
-
-There are two reasons for that:
-
-1. Clarity. We want to be clear that size checks are not handled by Haskell interpretations of
-   Plutus Core built-ins -- they're handled separately (see the "Apply" module).
-   The reason for that is that we do not basically care what an operation do w.r.t. to sizes,
-   we only care whether something it returns fits into some expected size.
-   And this last checking step can be performed uniformly for all currently presented built-ins.
-
-2. The semantics of @integer s@ is 'Integer'. While this may look ok, we actually lose size information,
-   so e.g. there is no meaningful way we could interpret
-
-       sizeOfInteger : forall s. integer s -> size s
-
-   with @size s@ being interpreted as 'Size', because in @Integer -> Size@ the size of the 'Integer'
-   is not specified. And we can't compute it, because we want its actual runtime size rather than
-   the minimal size it fits into, as the former can be larger than the latter.
-   Hence the semantics we have is
-
-       sizeOfIntegerMeaning :: Integer -> ()
-
-   I.e. this doesn't do anything useful at all. But it's not supposed to,
-   since it returns a size and sizes are handled separately as (1) describes.
--}
-
--- | Type-level sizes.
-data SizeEntry size
-    = SizeValue Size  -- ^ A constant size.
-    | SizeBound size  -- ^ A bound size variable.
-    deriving (Eq, Ord, Functor)
--- We write @SizeEntry Size@ sometimes, so this data type is not perfect, but it works fine.
-
--- | Built-in types.
-data BuiltinType size
-    = BuiltinSized (SizeEntry size) BuiltinSized
-
--- | Built-in types. A type is considired "built-in" if it can appear in the type signature
--- of a primitive operation. So @boolean@ is considered built-in even though it is defined in PLC
--- and is not primitive.
-data TypedBuiltin size a where
-    TypedBuiltinSized :: SizeEntry size -> TypedBuiltinSized a -> TypedBuiltin size a
-    -- Any type that implements 'KnownDynamicBuiltinType' can be lifted to a 'TypedBuiltin',
-    -- because any such type has a PLC representation and provides conversions back and forth
-    -- between Haskell and PLC and that's all we need.
-    TypedBuiltinDyn   :: KnownDynamicBuiltinType dyn => TypedBuiltin size dyn
-
--- | A 'TypedBuiltin' packaged together with a value of the type that the 'TypedBuiltin' denotes.
-data TypedBuiltinValue size a = TypedBuiltinValue (TypedBuiltin size a) a
+addIntegerPipe :: BuiltinPipe
+addIntegerPipe =
+    BuiltinPipeAll $ \tS ->
+    BuiltinPipeArg $ \tX ->
+    BuiltinPipeArg $ \tY ->
+    BuiltinPipeRes $
+        withReadSize tS $ \(_ :: Proxy s) ->
+            makeKnown <$> (addInteger @s <$> readKnownM tX <*> readKnownM tY)
 
 -- | Type schemes of primitive operations.
--- @a@ is the Haskell denotation of a PLC type represented as a 'TypeScheme'.
--- @r@ is the resulting type in @a@, e.g. the resulting type in
--- @ByteString -> Size -> Integer@ is @Integer@.
-data TypeScheme size a r where
-    TypeSchemeBuiltin :: TypedBuiltin size a -> TypeScheme size a a
-    TypeSchemeArrow   :: TypeScheme size a q -> TypeScheme size b r -> TypeScheme size (a -> b) r
-    TypeSchemeAllSize :: (size -> TypeScheme size a r) -> TypeScheme size a r
-    -- This is nailed to @size@ rather than being a generic @TypeSchemeForall@ for simplicity
-    -- and because at the moment we do not need anything else.
-    -- We can make this generic by parametrising @TypeScheme@ by an
-    -- @f :: Kind () -> *@ rather than @size@.
-
-    -- The @r@ is rather ad hoc and needed only for tests.
-    -- We could use type families to compute it instead of storing as an index.
-    -- That's a TODO perhaps.
+data TypeScheme a where
+    TypeSchemeResult  :: KnownType a => TypeScheme a
+    -- We do not allow higher-order builtins (i.e. builtins that accept functions as arguments).
+    -- This may change in future.
+    TypeSchemeArrow   :: KnownType a => TypeScheme b -> TypeScheme (a -> b)
+    TypeSchemeAllSize :: (KnownNat s => Proxy s -> TypeScheme a) -> TypeScheme a
 
 -- | A 'BuiltinName' with an associated 'TypeScheme'.
-data TypedBuiltinName a r = TypedBuiltinName BuiltinName (forall size. TypeScheme size a r)
--- I attempted to unify various typed things, but sometimes type variables must be universally
--- quantified, sometimes they must be existentially quatified. And those are distinct type variables.
+data TypedBuiltinName a = TypedBuiltinName BuiltinName (TypeScheme a)
 
--- | Convert a 'TypedBuiltinSized' to its untyped counterpart.
-eraseTypedBuiltinSized :: TypedBuiltinSized a -> BuiltinSized
-eraseTypedBuiltinSized TypedBuiltinSizedInt  = BuiltinSizedInt
-eraseTypedBuiltinSized TypedBuiltinSizedBS   = BuiltinSizedBS
-eraseTypedBuiltinSized TypedBuiltinSizedSize = BuiltinSizedSize
+sizeIntIntInt
+    :: forall (s :: Nat). TypeScheme (Sized Integer s -> Sized Integer s -> Sized Integer s)
+sizeIntIntInt =
+    TypeSchemeAllSize $ \(_ :: Proxy s) ->
+          TypeSchemeArrow . TypeSchemeArrow $ TypeSchemeResult
+
+-- | Typed 'AddInteger'.
+typedAddInteger
+    :: forall (s :: Nat). TypedBuiltinName (Sized Integer s -> Sized Integer s -> Sized Integer s)
+typedAddInteger = TypedBuiltinName AddInteger sizeIntIntInt
+
+
+-- addInteger {2} 3 4 ~> 7
+
+-- (TypedBuiltinSized (SizeBound s) TypedBuiltinSizedInt)
+
+-- -- | Typed 'AddInteger'.
+-- typedAddInteger :: TypedBuiltinName (Integer -> Integer -> Integer) Integer
+-- typedAddInteger = TypedBuiltinName AddInteger sizeIntIntInt
+
+
+-- addInteger : all s. integer s -> integer s -> integer s
+-- cast : all a b. a -> maybe b
+
+-- typedAddInteger :: TypedBuiltinName (Sized Integer s -> Sized Integer s -> Sized Integer s)
+-- typedCast :: TypedBuiltinName (a -> maybe b)
+--
 
 {- Note [DynamicBuiltinNameMeaning]
 We represent the meaning of a 'DynamicBuiltinName' as a 'TypeScheme' and a Haskell denotation.
@@ -166,8 +135,7 @@ final pipeline one has to supply a 'DynamicBuiltinNameMeaning' for each of the '
 
 -- | The meaning of a dynamic built-in name consists of its 'Type' represented as a 'TypeScheme'
 -- and its Haskell denotation.
-data DynamicBuiltinNameMeaning =
-    forall a r. DynamicBuiltinNameMeaning (forall size. TypeScheme size a r) a
+data DynamicBuiltinNameMeaning = forall a. DynamicBuiltinNameMeaning (TypeScheme a) a
 -- See the [DynamicBuiltinNameMeaning] note.
 
 -- | The definition of a dynamic built-in consists of its name and meaning.
@@ -201,7 +169,7 @@ such extensions to the AST
 2. are of kind @*@. Dynamic built-in types that are not of kind @*@ can be encoded via recursive
 instances. For example:
 
-    instance KnownDynamicBuiltinType dyn => KnownDynamicBuiltinType [dyn] where
+    instance KnownType dyn => KnownType [dyn] where
         ...
 
 This is due to the fact that we use Haskell classes to assign semantics to dynamic built-in types and
@@ -214,11 +182,11 @@ types for free. Any dynamic built-in type means the same thing regardless of the
 added to. It may prove to be restrictive, but it's a good property to start with, because less things
 can silently stab you in the back.
 
-An @KnownDynamicBuiltinType dyn@ instance provides
+An @KnownType dyn@ instance provides
 
 1. a way to encode @dyn@ as a PLC type ('getTypeEncoding')
-2. a function that encodes values of type @dyn@ as PLC terms ('makeDynamicBuiltin')
-3. a function that decodes PLC terms back to Haskell values ('readDynamicBuiltin')
+2. a function that encodes values of type @dyn@ as PLC terms ('makeKnown')
+3. a function that decodes PLC terms back to Haskell values ('readKnown')
 
 The last two are ought to constitute an isomorphism (modulo 'Maybe').
 -}
@@ -226,7 +194,7 @@ The last two are ought to constitute an isomorphism (modulo 'Maybe').
 {- Note [Converting PLC values to Haskell values]
 The first thought that comes to mind when you asked to convert a PLC value to the corresponding Haskell
 value is "just match on the AST". This works nicely for simple things like 'Char's which we encode as
-@integer@s, see the @KnownDynamicBuiltinType Char@ instance below.
+@integer@s, see the @KnownType Char@ instance below.
 
 But how to convert something more complicated like lists? A PLC list gets passed as argument to
 a built-in after it gets evaluated to WHNF. We can't just match on the AST here, because after
@@ -284,71 +252,165 @@ received evaluator
 (3) seems best, so it's what is implemented.
 -}
 
+newtype EvaluationResultT m a = EvaluationResultT
+    { unEvaluationResultT :: m (EvaluationResult a)
+    }
+
+instance Functor f => Functor (EvaluationResultT f) where
+instance Applicative f => Applicative (EvaluationResultT f) where
+instance Monad m => Monad (EvaluationResultT m) where
+
+
 -- | The monad in which we convert PLC terms to Haskell values.
 -- Conversion can fail with
 --
 -- 1. 'EvaluationFailure' if at some point constants stop fitting into specified sizes.
 -- 2. A textual error if a PLC term can't be converted to a Haskell value of a specified type.
-type Convert a = ExceptT Text EvaluationResult a
+type ConvertT m = EvaluationResultT (ExceptT Text m)
 
 -- See Note [Semantics of dynamic built-in types].
 -- See Note [Converting PLC values to Haskell values].
 -- Types and terms are supposed to be closed, hence no 'Quote'.
 -- | Haskell types known to exist on the PLC side.
-class KnownDynamicBuiltinType dyn where
+class KnownType dyn where
     -- | The type representing @dyn@ used on the PLC side.
-    toTypeEncoding :: proxy dyn -> Type TyName ()
+    toTypeAst :: proxy dyn -> Type TyName ()
 
     -- | Convert a Haskell value to the corresponding PLC value.
     -- 'Nothing' represents a conversion failure.
-    makeDynamicBuiltin :: dyn -> Maybe (Term TyName Name ())
+    makeKnown :: dyn -> Maybe (Term TyName Name ())
 
     -- See Note [Evaluators].
     -- | Convert a PLC value to the corresponding Haskell value.
-    readDynamicBuiltin :: Monad m => Evaluator Term m -> Term TyName Name () -> m (Convert dyn)
+    readKnown :: Monad m => Evaluator Term m -> Term TyName Name () -> ConvertT m dyn
 
-readDynamicBuiltinM
-    :: (Monad m, KnownDynamicBuiltinType dyn)
-    => Term TyName Name () -> Evaluate m (Convert dyn)
-readDynamicBuiltinM term = withEvaluator $ \eval -> readDynamicBuiltin eval term
-
-instance Pretty BuiltinSized where
-    pretty BuiltinSizedInt  = "integer"
-    pretty BuiltinSizedBS   = "bytestring"
-    pretty BuiltinSizedSize = "size"
-
-instance Pretty (TypedBuiltinSized a) where
-    pretty = pretty . eraseTypedBuiltinSized
-
-instance Pretty size => Pretty (SizeEntry size) where
-    pretty (SizeValue size) = pretty size
-    pretty (SizeBound size) = pretty size
-
-instance Pretty size => Pretty (TypedBuiltin size a) where
-    pretty (TypedBuiltinSized se tbs) = parens $ pretty tbs <+> pretty se
-    -- TODO: do we want this entire thing to be 'PrettyBy' rather than 'Pretty'?
-    -- This is just used in errors, so we probably do not care much.
-    pretty dyn@TypedBuiltinDyn        = prettyPlcDef $ toTypeEncoding dyn
-
-instance (size ~ Size, PrettyDynamic a) => Pretty (TypedBuiltinValue size a) where
-    pretty (TypedBuiltinValue (TypedBuiltinSized se _) x) = pretty se <+> "!" <+> prettyDynamic x
-    pretty (TypedBuiltinValue TypedBuiltinDyn          x) = prettyDynamic x
+readKnownM
+    :: (Monad m, KnownType dyn)
+    => Term TyName Name () -> Evaluate (ConvertT m) dyn
+readKnownM term = undefined
+  -- withEvaluator $ \eval -> readKnown eval term
 
 -- Encode '()' from Haskell as @all r. r -> r@ from PLC.
 -- This is a very special instance, because it's used to define functions that are needed for
 -- other instances, so we keep it here.
-instance KnownDynamicBuiltinType () where
-    toTypeEncoding _ = unit
+instance KnownType () where
+    toTypeAst _ = unit
 
     -- We need this matching, because otherwise Haskell expressions are thrown away rather than being
     -- evaluated and we use 'unsafePerformIO' in multiple places, so we want to compute the '()' just
     -- for side effects the evaluation may cause.
-    makeDynamicBuiltin () = pure unitval
+    makeKnown () = pure unitval
 
-    readDynamicBuiltin eval term = do
+    readKnown eval term = do
         let int1 = TyApp () (TyBuiltin () TyInteger) (TyInt () 4)
             asInt1 = Constant () . BuiltinInt () 1
         res <- eval mempty . Apply () (TyInst () term int1) $ asInt1 1
         pure $ lift res >>= \case
             Constant () (BuiltinInt () 1 1) -> pure ()
             _                               -> throwError "Not a builtin ()"
+
+addInteger :: Sized Integer s -> Sized Integer s -> Sized Integer s
+addInteger = undefined
+
+instance KnownNat s => KnownType (Sized Integer s) where
+    toTypeAst _ = undefined
+    makeKnown = undefined
+    readKnown = undefined
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- -- | Built-in types indexed by @size@.
+-- data BuiltinSized
+--     = BuiltinSizedInt
+--     | BuiltinSizedBS
+--     | BuiltinSizedSize
+--     deriving (Show, Eq)
+
+-- -- | Built-in types indexed by @size@ along with their denotation.
+-- data TypedBuiltinSized a where
+--     TypedBuiltinSizedInt  :: TypedBuiltinSized Integer
+--     TypedBuiltinSizedBS   :: TypedBuiltinSized BSL.ByteString
+--     -- See Note [Semantics of sizes].
+--     TypedBuiltinSizedSize :: TypedBuiltinSized ()
+
+-- -- | Type-level sizes.
+-- data SizeEntry size
+--     = SizeValue Size  -- ^ A constant size.
+--     | SizeBound size  -- ^ A bound size variable.
+--     deriving (Eq, Ord, Functor)
+-- -- We write @SizeEntry Size@ sometimes, so this data type is not perfect, but it works fine.
+
+-- -- | Built-in types.
+-- data BuiltinType size
+--     = BuiltinSized (SizeEntry size) BuiltinSized
+
+-- -- | Built-in types. A type is considired "built-in" if it can appear in the type signature
+-- -- of a primitive operation. So @boolean@ is considered built-in even though it is defined in PLC
+-- -- and is not primitive.
+-- data TypedBuiltin size a where
+--     TypedBuiltinSized :: SizeEntry size -> TypedBuiltinSized a -> TypedBuiltin size a
+--     -- Any type that implements 'KnownType' can be lifted to a 'TypedBuiltin',
+--     -- because any such type has a PLC representation and provides conversions back and forth
+--     -- between Haskell and PLC and that's all we need.
+--     TypedBuiltinDyn   :: KnownType dyn => TypedBuiltin size dyn
+
+
+
+
+
+
+
+
+
+
+-- instance (size ~ Size, PrettyDynamic a) => Pretty (KnownTypeValue a) where
+--     pretty = undefined
+--     pretty (TypedBuiltinValue (TypedBuiltinSized se _) x) = pretty se <+> "!" <+> prettyDynamic x
+--     pretty (TypedBuiltinValue TypedBuiltinDyn          x) = prettyDynamic x
+
+
+
+
+-- -- | A 'BuiltinName' with an associated 'TypeScheme'.
+-- data TypedBuiltinName a r = TypedBuiltinName BuiltinName (forall size. TypeScheme size a r)
+-- I attempted to unify various typed things, but sometimes type variables must be universally
+-- quantified, sometimes they must be existentially quatified. And those are distinct type variables.
+
+-- -- | Convert a 'TypedBuiltinSized' to its untyped counterpart.
+-- eraseTypedBuiltinSized :: TypedBuiltinSized a -> BuiltinSized
+-- eraseTypedBuiltinSized TypedBuiltinSizedInt  = BuiltinSizedInt
+-- eraseTypedBuiltinSized TypedBuiltinSizedBS   = BuiltinSizedBS
+-- eraseTypedBuiltinSized TypedBuiltinSizedSize = BuiltinSizedSize
+
+-- instance Pretty BuiltinSized where
+--     pretty BuiltinSizedInt  = "integer"
+--     pretty BuiltinSizedBS   = "bytestring"
+--     pretty BuiltinSizedSize = "size"
+
+-- instance Pretty (TypedBuiltinSized a) where
+--     pretty = pretty . eraseTypedBuiltinSized
+
+-- instance Pretty size => Pretty (SizeEntry size) where
+--     pretty (SizeValue size) = pretty size
+--     pretty (SizeBound size) = pretty size
+
+-- instance Pretty size => Pretty (TypedBuiltin size a) where
+--     pretty (TypedBuiltinSized se tbs) = parens $ pretty tbs <+> pretty se
+--     TODO: do we want this entire thing to be 'PrettyBy' rather than 'Pretty'?
+--     This is just used in errors, so we probably do not care much.
+--     pretty dyn@TypedBuiltinDyn        = prettyPlcDef $ toTypeAst dyn
