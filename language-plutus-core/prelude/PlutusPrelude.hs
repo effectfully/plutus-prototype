@@ -25,6 +25,9 @@ module PlutusPrelude ( -- * Reëxports from base
                      , (<=<)
                      , (>=>)
                      , ($>)
+                     , forBind
+                     , InnerT (..)
+                     , llift
                      , fromRight
                      , isRight
                      , void
@@ -104,6 +107,7 @@ import           Control.DeepSeq                         (NFData)
 import           Control.Exception                       (Exception, throw)
 import           Control.Lens
 import           Control.Monad                           (guard, join, (<=<), (>=>))
+import           Control.Monad.Trans.Inner               (InnerT (..), forBind, llift)
 import           Data.Bifunctor                          (first, second)
 import           Data.Bool                               (bool)
 import qualified Data.ByteString.Lazy                    as BSL

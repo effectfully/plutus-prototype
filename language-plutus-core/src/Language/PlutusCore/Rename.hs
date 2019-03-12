@@ -61,7 +61,7 @@ instance Rename a => Rename (Normalized a) where
 -- global conditions is preserved.
 newtype Dupable a = Dupable
     { unDupable :: Identity a  -- 'Identity' is for deriving 'Applicative' and 'Monad'.
-    } deriving (Show, Eq, Functor, Foldable, Traversable, Applicative, Monad)
+    } deriving (Show, Eq, Functor, Applicative, Monad)
 
 -- | Extract the value stored in a @Dupable a@ and rename it.
 liftDupable :: (MonadQuote m, Rename a) => Dupable a -> m a

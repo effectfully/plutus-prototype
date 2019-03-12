@@ -1,8 +1,10 @@
 -- | This module defines a common type various evaluation machine use to return their results.
 
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Language.PlutusCore.Evaluation.Result
@@ -15,8 +17,9 @@ module Language.PlutusCore.Evaluation.Result
 import           Language.PlutusCore.Name
 import           Language.PlutusCore.Pretty
 import           Language.PlutusCore.Type
+import           PlutusPrelude
 
-import           Control.Applicative
+import           Control.Monad.Except
 
 -- | The parameterized type of results various evaluation engines return.
 -- On the PLC side this becomes (via @makeDynamicBuiltin@) either a call to 'error' or
@@ -44,6 +47,18 @@ instance Alternative EvaluationResult where
 
     EvaluationSuccess x <|> _ = EvaluationSuccess x
     EvaluationFailure   <|> a = a
+
+-- instance e ~ () => MonadError e EvaluationResult where
+--     throwError () = llift EvaluationFailure
+--     catchError (T m) f = T $ m >>= \case
+--         EvaluationFailure   -> unT $ f ()
+--         EvaluationSuccess x -> pure $ EvaluationSuccess x
+
+-- instance (e ~ (), Monad m) => MonadError e (T EvaluationResult m) where
+--     throwError () = llift EvaluationFailure
+--     catchError (T m) f = T $ m >>= \case
+--         EvaluationFailure   -> unT $ f ()
+--         EvaluationSuccess x -> pure $ EvaluationSuccess x
 
 instance PrettyBy config a => PrettyBy config (EvaluationResult a) where
     prettyBy config (EvaluationSuccess value) = prettyBy config value
