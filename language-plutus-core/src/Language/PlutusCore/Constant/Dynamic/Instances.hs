@@ -33,23 +33,6 @@ import           Data.Proxy
 import qualified Data.Text.Prettyprint.Doc                   as Doc
 import           System.IO.Unsafe                            (unsafePerformIO)
 
-instance KnownDynamicBuiltinType a => KnownDynamicBuiltinType (EvaluationResult a) where
-    toTypeEncoding _ = toTypeEncoding $ Proxy @a
-
-    -- 'EvaluationFailure' on the Haskell side becomes 'Error' on the PLC side.
-    makeDynamicBuiltin EvaluationFailure     = pure . Error () . toTypeEncoding $ Proxy @a
-    makeDynamicBuiltin (EvaluationSuccess x) = makeDynamicBuiltin x
-
-    -- There are two 'EvaluationResult's here: an external one (which any 'KnownDynamicBuiltinType'
-    -- instance has to deal with) and an internal one (specific to this particular instance).
-    -- Our approach is to always return 'EvaluationSuccess' for the external 'EvaluationResult'
-    -- and catch all 'EvaluationFailure's in the internal 'EvaluationResult'.
-    -- This allows *not* to short-circuit when 'readDynamicBuiltin' fails to read a Haskell value.
-    -- Instead the user gets an explicit @EvaluationResult a@ and evaluation proceeds normally.
-    readDynamicBuiltin eval term = ExceptT . EvaluationSuccess <$> do
-        res <- eval mempty term
-        sequence . (>>= runExceptT) <$> traverse (readDynamicBuiltin eval) res
-
 instance KnownDynamicBuiltinType [Char] where
     toTypeEncoding _ = TyBuiltin () TyString
 

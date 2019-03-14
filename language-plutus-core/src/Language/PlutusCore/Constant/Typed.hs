@@ -2,22 +2,13 @@
 -- See the @plutus/language-plutus-core/docs/Constant application.md@
 -- article for how this emerged.
 
-{-# LANGUAGE ConstraintKinds           #-}
-{-# LANGUAGE DataKinds                 #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleInstances         #-}
-{-# LANGUAGE FunctionalDependencies    #-}
-{-# LANGUAGE GADTs                     #-}
-{-# LANGUAGE KindSignatures            #-}
-{-# LANGUAGE LambdaCase                #-}
-{-# LANGUAGE MultiParamTypeClasses     #-}
-{-# LANGUAGE OverloadedStrings         #-}
-{-# LANGUAGE PolyKinds                 #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE TypeApplications          #-}
-{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds         #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TypeApplications  #-}
 -- {-# LANGUAGE TypeInType                #-}
-{-# LANGUAGE TypeOperators             #-}
 
 module Language.PlutusCore.Constant.Typed where
 --     ( {- BuiltinSized (..)
@@ -33,7 +24,7 @@ module Language.PlutusCore.Constant.Typed where
 --     , DynamicBuiltinNameMeanings (..)
 --     , Evaluator
 --     , Evaluate
---     , Convert
+--     , Reflect
 --     , KnownType (..)
 --     , eraseTypedBuiltinSized
 --     , runEvaluate
@@ -58,266 +49,48 @@ import qualified Data.ByteString.Lazy.Char8                  as BSL
 import           Data.Map                                    (Map)
 import           Data.Proxy
 import           Data.Text                                   (Text)
-import           GHC.TypeLits
+import           GHC.TypeNats
 
 newtype Sized a (s :: k) = Sized
     { unSized :: a
     }
-
-data Dict c where
-    Dict :: c => Dict c
-
-data Holds c f where
-    Holds :: c a => f a -> Holds c f
-
-data BuiltinPipe (sized :: * -> Nat -> *) arg where
-    BuiltinPipeRes
-        :: (sized ~ Sized => Holds KnownType arg)
-        -> BuiltinPipe sized arg
-    BuiltinPipeAllType
-        :: (Type TyName () -> BuiltinPipe sized arg)
-        -> BuiltinPipe sized arg
-    BuiltinPipeAllSize
-        :: (forall s. KnownNat s => Proxy s -> BuiltinPipe sized arg)
-        -> BuiltinPipe sized arg
-    BuiltinPipeArg
-        :: (sized ~ Sized => Dict (KnownType a))
-        -> (arg a -> BuiltinPipe sized arg)
-        -> BuiltinPipe sized arg
-
-showAbstractSized :: proxy (sized Integer s) -> Type TyName ()
-showAbstractSized = undefined
-
--- \(b :: arg Bool) -> ...
-addIntegerPipe :: forall sized arg. Applicative arg => BuiltinPipe sized arg
-addIntegerPipe =
-    BuiltinPipeAllSize $ \(_ :: Proxy s) ->
-    BuiltinPipeArg Dict $ \(aX :: arg (sized Integer s)) ->
-    BuiltinPipeArg Dict $ \(aY :: arg (sized Integer s)) ->
-    BuiltinPipeRes $ Holds $
-        addInteger @s <$> aX <*> aY
-
-data BoundS a (unique :: Nat)
-
--- Uniques as KnownNats mapped to their human-readable indices.
-asType :: BuiltinPipe BoundS Proxy -> Quote (Type TyName ())
-asType = go mempty where
-    go :: UniqueMap TypeUnique Int -> BuiltinPipe BoundS Proxy -> Quote (Type TyName ())
-    go levels = undefined -- (BuiltinPipeRes _) = undefined
-
-a = 'a'
-
--- -- Seems to work.
--- data AKnownType a where
---     AKnownType :: KnownType a => AKnownType a
-
--- data AKnownArg arg where
---     AKnownArg :: KnownType a => arg a -> AKnownArg arg
-
--- data BuiltinPipe (var :: Nat -> *) arg where
---     BuiltinPipeVal
---         :: (var ~ Value => AKnownArg arg)
---         -> BuiltinPipe var arg
---     BuiltinPipeAllType
---         :: (Type TyName () -> BuiltinPipe var arg)
---         -> BuiltinPipe var arg
---     BuiltinPipeAllSize
---         :: (forall s. KnownNat s => Proxy s -> BuiltinPipe var arg)
---         -> BuiltinPipe var arg
---     BuiltinPipeArg
---         :: (var ~ Value => AKnownType a)
---         -> (arg a -> BuiltinPipe var arg)
---         -> BuiltinPipe var arg
-
--- data Value (a :: k) = Value
--- data Bound (a :: k) = Bound
-
--- -- class KnownVar a where
-
--- -- instance KnownNat n => KnownVar (Value n) where
--- -- instance KnownNat n => KnownVar (Bound n) where
-
--- -- \(b :: arg Bool) -> ...
--- addIntegerPipe :: forall var arg. Applicative arg => BuiltinPipe var arg
--- addIntegerPipe =
---     BuiltinPipeAllSize $ \(_ :: Proxy s) ->
---     BuiltinPipeArg AKnownType $ \(aX :: arg (Sized Integer (var s))) ->
---     BuiltinPipeArg AKnownType $ \(aY :: arg (Sized Integer (var s))) ->
---     BuiltinPipeVal $ AKnownArg $
---         addInteger @s <$> aX <*> aY
-
-
-
-
--- -- Wrong ("<whatever> is untouchable" junk).
--- data BuiltinPipeVal arg size where
---     BuiltinPipeValRes  :: KnownType a => a -> BuiltinPipeVal arg size
---     BuiltinPipeValAllSize
---         :: size s
---         -> (KnownNat s => BuiltinPipeVal arg size)
---         -> BuiltinPipeVal arg size
---     BuiltinPipeValArg
---         :: arg a
---         -> (a -> BuiltinPipeVal arg size)
---         -> BuiltinPipeVal arg size
-
--- data AsKnownType a where
---     AsKnownType :: KnownType a => AsKnownType a
-
--- data IsSized sized where
---     IsSized :: sized ~ Sized => IsSized sized
-
--- data BuiltinPipe (sized :: * -> Nat -> *) arg where
---     BuiltinPipeVal     :: (sized ~ Sized => AsKnownType a) -> (Applicative arg => IsSized sized -> arg a) -> BuiltinPipe sized arg
---     BuiltinPipeAllType :: (Type TyName () -> BuiltinPipe sized arg) -> BuiltinPipe sized arg
---     BuiltinPipeAllSize :: (forall s. KnownNat s => Proxy s -> BuiltinPipe sized arg) -> BuiltinPipe sized arg
---     BuiltinPipeArg     :: (sized ~ Sized => AsKnownType a) -> (arg a -> BuiltinPipe sized arg) -> BuiltinPipe sized arg
-
-
-
--- -- Wrong.
--- data (a :: k) :~: b where
---     Refl :: a :~: a
-
--- data ANat k where
---     ANat :: ANat Nat
-
--- data BuiltinPipe arg where
---     BuiltinPipeVal     :: KnownType a => arg a -> BuiltinPipe arg
---     BuiltinPipeAllType :: (Type TyName () -> BuiltinPipe arg) -> BuiltinPipe arg
---     BuiltinPipeAllSize
---         :: (forall k (s :: k). KnownLit s => Proxy s -> arg (ANat k) -> BuiltinPipe arg)
---         -> BuiltinPipe arg
---     BuiltinPipeArg     :: KnownType a => (arg a -> BuiltinPipe arg) -> BuiltinPipe arg
-
--- class KnownLit (s :: k) where
---     type Lit k
---     litVal :: proxy s -> Lit k
-
--- instance KnownNat n => KnownLit (n :: Nat) where
---     type Lit Nat = Integer
---     litVal = natVal @n
-
--- instance KnownSymbol s => KnownLit (s :: Symbol) where
---     type Lit Symbol = String
---     litVal = symbolVal @s
-
--- -- class KnownSize (s :: k) a | k -> a where
--- --     reifySize :: proxy s -> a
-
--- -- instance KnownNat n => KnownSize (n :: Nat) Integer where
--- --     reifySize = natVal @n
-
--- -- instance KnownSymbol s => KnownSize (s :: Symbol) String where
--- --     reifySize = symbolVal @s
-
--- -- \(b :: arg Bool) -> ...
--- addIntegerPipe :: forall arg. Monad arg => BuiltinPipe arg
--- addIntegerPipe =
---     BuiltinPipeAllSize $ \(_ :: Proxy s) qS ->
---     BuiltinPipeArg $ \(aX :: arg (Sized Integer s)) ->
---     BuiltinPipeArg $ \(aY :: arg (Sized Integer s)) ->
---     BuiltinPipeVal $
---         (qS >>= \ANat -> (addInteger @s <$> aX <*> aY) :: arg (EvaluationResult (Sized Integer s)))
-
-
-
--- -- Wrong
--- data BuiltinPipeVal arg size where
---     BuiltinPipeValRes  :: KnownType a => a -> BuiltinPipeVal arg size
---     BuiltinPipeValAllSize
---         :: size
---         -> (forall s. KnownNat s => Proxy s -> BuiltinPipeVal arg size)
---         -> BuiltinPipeVal arg size
---     BuiltinPipeValArg
---         :: arg a
---         -> (a -> BuiltinPipeVal arg size)
---         -> BuiltinPipeVal arg size
-
--- data BuiltinPipe arg size where
---     BuiltinPipeVal     :: BuiltinPipeVal arg size -> BuiltinPipe arg size
---     BuiltinPipeAllType :: (Type TyName () -> BuiltinPipe arg size) -> BuiltinPipe arg size
---     BuiltinPipeAllSize :: (size -> BuiltinPipe arg size) -> BuiltinPipe arg size
---     BuiltinPipeArg     :: KnownType a => (arg a -> BuiltinPipe arg size) -> BuiltinPipe arg size
-
--- addIntegerPipe :: BuiltinPipe arg size
--- addIntegerPipe =
---     BuiltinPipeAllSize $ \aS ->
---     BuiltinPipeArg $ \aX ->
---     BuiltinPipeArg $ \aY ->
---     BuiltinPipeVal $
---         BuiltinPipeValAllSize aS $ \(_ :: Proxy s) ->
---         BuiltinPipeValArg aX $ \x ->
---         BuiltinPipeValArg aY $ \y ->
---         BuiltinPipeValRes $
---             addInteger @s x y
-
--- - PLC types can be extracted from pipes
--- - thus the value-level part can be ignored
--- - and Haskell types determine PLC types
--- - but the value-level part has to be present
--- - and it must be well-typed
-
-
-
--- Correct, but PLC types can't be extracted.
--- data BuiltinPipe where
---     -- BuiltinPipeRes :: Either Text (Term TyName Name ()) -> BuiltinPipe
---     BuiltinPipeRes     :: KnownType a => a -> BuiltinPipe
---     BuiltinPipeAllType :: (Type TyName () -> BuiltinPipe) -> BuiltinPipe
---     BuiltinPipeAllSize :: (forall s. KnownNat s => Proxy s -> BuiltinPipe) -> BuiltinPipe
---     BuiltinPipeArg     :: KnownType a => (a -> BuiltinPipe) -> BuiltinPipe
-
--- addIntegerPipe :: BuiltinPipe
--- addIntegerPipe =
---     BuiltinPipeAllSize $ \(_ :: Proxy s) ->
---     BuiltinPipeArg $ \x ->
---     BuiltinPipeArg $ \y ->
---     BuiltinPipeRes $ addInteger @s x y
-
-{-
-data BuiltinPipe
-    = BuiltinPipeRes (forall m. Monad m => EvaluateT ConvertT m (Term TyName Name ()))
-    | BuiltinPipeAll (Type TyName ()      -> BuiltinPipe)
-    | BuiltinPipeArg (Term TyName Name () -> BuiltinPipe)
 
 withKnownNat :: Natural -> (forall n. KnownNat n => Proxy n -> c) -> c
 withKnownNat nat k =
     case someNatVal nat of
         SomeNat proxy -> k proxy
 
-withKnownSize
-    :: Type TyName ann
-    -> (forall s. KnownNat s => Proxy s -> EvaluateT ConvertT m c)
-    -> EvaluateT ConvertT m c
-withKnownSize ty k =
+data BuiltinPipe where
+    BuiltinPipeRes     :: KnownType a => a -> BuiltinPipe
+    BuiltinPipeAllType :: (Type TyName () -> BuiltinPipe) -> BuiltinPipe
+    BuiltinPipeAllSize :: (forall s. KnownNat s => Proxy s -> BuiltinPipe) -> BuiltinPipe
+    BuiltinPipeArg     :: KnownType a => (a -> BuiltinPipe) -> BuiltinPipe
+
+-- TODO: better error messages.
+
+applyBuiltinPipe :: Monad m => BuiltinPipe -> Term TyName Name () -> EvaluateT ReflectT m BuiltinPipe
+applyBuiltinPipe (BuiltinPipeArg cont) term = cont <$> readKnownM term
+applyBuiltinPipe _                     _    = throwError "Cannot apply a 'BuiltinPipe' to a term"
+
+tyInstTypeBuiltinPipe :: Monad m => BuiltinPipe -> Type TyName () -> EvaluateT ReflectT m BuiltinPipe
+tyInstTypeBuiltinPipe (BuiltinPipeAllType cont) ty = pure $ cont ty
+tyInstTypeBuiltinPipe _                         _  = throwError "Cannot instantiate a 'BuiltinPipe' at a type"
+
+tyInstSizeBuiltinPipe :: Monad m => BuiltinPipe -> Type TyName () -> EvaluateT ReflectT m BuiltinPipe
+tyInstSizeBuiltinPipe (BuiltinPipeAllSize cont) ty =
     -- TODO: evaluate `ty`.
     case ty of
-        TyInt _ s -> withKnownNat s k
+        TyInt _ size -> pure $ withKnownNat size cont
+        _            -> throwError "Cannot instantiate a 'BuiltinPipe' at a non-size"
+tyInstSizeBuiltinPipe _                         _  = throwError "Cannot instantiate a 'BuiltinPipe' at a size"
 
-addIntegerPipe :: BuiltinPipe
-addIntegerPipe =
-    BuiltinPipeAll $ \tS ->
-    BuiltinPipeArg $ \tX ->
-    BuiltinPipeArg $ \tY ->
-    BuiltinPipeRes $
-        withKnownSize tS $ \(_ :: Proxy s) -> do
-            x <- readKnownM tX
-            y <- readKnownM tY
-            makeKnown =<< addInteger @s x y
--}
+extrBuiltinPipe :: Monad m => BuiltinPipe -> EvaluateT ReflectT m (Term TyName Name ())
+extrBuiltinPipe (BuiltinPipeRes x) = makeKnown x
+extrBuiltinPipe _                  = throwError "Cannot extract a resulting value from a 'BuiltinPipe'"
 
--- -- Could have this, but still need to type check stuff like `f addInteger`, but then we can't
--- -- instantiate lambdas.
 -- BuiltinPipeAll $ \t1 ->
 -- BuiltinPipeAll $ \t2 ->
 -- (typeSchema, operation)
-
--- BuiltinPipeAll $ \s ->
--- (Arg . Arg $ Res @(EvaluationResult (Sized Integer s)), addInteger @s)
-
--- addInteger : all s. integer s -> integer s -> integer s
--- cast : all a b. a -> maybe b
 
 -- -- | The definition of a dynamic built-in consists of its name and meaning.
 -- data DynamicBuiltinNameDefinition =
@@ -343,11 +116,14 @@ newtype EvaluateT t m a = EvaluateT
         , MonadError e
         )
 
-runEvaluate :: Evaluator Term m -> EvaluateT t m a -> t m a
-runEvaluate eval (EvaluateT a) = runReaderT a eval
+runEvaluateT :: Evaluator Term m -> EvaluateT t m a -> t m a
+runEvaluateT eval (EvaluateT a) = runReaderT a eval
 
 withEvaluator :: (Evaluator Term m -> t m a) -> EvaluateT t m a
 withEvaluator = EvaluateT . ReaderT
+
+-- runEvaluateReflect :: Evaluator Term m -> EvaluateT ReflectT m a -> m (EvaluationResult (Either Text a))
+-- runEvaluateReflect eval = runReflectT . runEvaluateT eval
 
 {- Note [Semantics of dynamic built-in types]
 We only allow dynamic built-in types that
@@ -383,7 +159,7 @@ An @KnownType dyn@ instance provides
 The last two are ought to constitute an isomorphism (modulo 'Maybe').
 -}
 
-{- Note [Converting PLC values to Haskell values]
+{- Note [Reflecting PLC values to Haskell values]
 The first thought that comes to mind when you asked to convert a PLC value to the corresponding Haskell
 value is "just match on the AST". This works nicely for simple things like 'Char's which we encode as
 @integer@s, see the @KnownType Char@ instance below.
@@ -436,7 +212,7 @@ evaluate built-in applications. The type of evaluators is this then:
 
 so @Evaluator Term@ receives a map with meanings of dynamic built-in names which extends the map the
 evaluator already has (this is needed, because we add new dynamic built-in names during conversion of
-PLC values to Haskell values, see Note [Converting PLC values to Haskell values]), a 'Term' to evaluate
+PLC values to Haskell values, see Note [Reflecting PLC values to Haskell values]), a 'Term' to evaluate
 and returns an 'EvaluationResult' (we may want to later add handling of errors here). Thus, whenever
 we want to resume evaluation during computation of a dynamic built-in application, we just call the
 received evaluator
@@ -444,60 +220,64 @@ received evaluator
 (3) seems best, so it's what is implemented.
 -}
 
-
 -- | The monad in which we convert PLC terms to Haskell values.
 -- Conversion can fail with
 --
 -- 1. 'EvaluationFailure' if at some point constants stop fitting into specified sizes.
 -- 2. A textual error if a PLC term can't be converted to a Haskell value of a specified type.
-newtype ConvertT m a = ConvertT
-    { unConvertT :: ExceptT Text (InnerT EvaluationResult m) a
+newtype ReflectT m a = ReflectT
+    { unReflectT :: ExceptT Text (InnerT EvaluationResult m) a
     } deriving
         ( Functor, Applicative, Monad
         , MonadError Text
         )
 
 -- GHC does not want to derive this for some reason.
-instance MonadTrans ConvertT where
-    lift = ConvertT . lift . lift
+instance MonadTrans ReflectT where
+    lift = ReflectT . lift . lift
 
-instance Monad m => Alternative (ConvertT m) where
-    empty = ConvertT . lift $ llift empty
-    ConvertT (ExceptT (InnerT m)) <|> ConvertT (ExceptT (InnerT n)) =
-        ConvertT . ExceptT . InnerT $ (<|>) <$> m <*> n
+-- Uses the 'Alternative' instance of 'EvaluationResult'.
+instance Monad m => Alternative (ReflectT m) where
+    empty = ReflectT . lift $ llift empty
+    ReflectT (ExceptT (InnerT m)) <|> ReflectT (ExceptT (InnerT n)) =
+        ReflectT . ExceptT . InnerT $ (<|>) <$> m <*> n
 
-convertM :: Monad m => m (EvaluationResult a) -> ConvertT m a
-convertM = ConvertT . lift . InnerT
+runReflectT :: ReflectT m a -> m (EvaluationResult (Either Text a))
+runReflectT = unInnerT . runExceptT . unReflectT
 
-class KnownTypeAst a where
+makeReflectT :: m (EvaluationResult (Either Text a)) -> ReflectT m a
+makeReflectT = ReflectT . ExceptT . InnerT
+
+makeRightReflectT :: Monad m => m (EvaluationResult a) -> ReflectT m a
+makeRightReflectT = ReflectT . lift . InnerT
+
+-- See Note [Semantics of dynamic built-in types].
+-- See Note [Reflecting PLC values to Haskell values].
+-- Types and terms are supposed to be closed, hence no 'Quote'.
+-- | Haskell types known to exist on the PLC side.
+class KnownType a where
     -- | The type representing @a@ used on the PLC side.
     toTypeAst :: proxy a -> Type TyName ()
 
--- See Note [Semantics of dynamic built-in types].
--- See Note [Converting PLC values to Haskell values].
--- Types and terms are supposed to be closed, hence no 'Quote'.
--- | Haskell types known to exist on the PLC side.
-class KnownTypeAst a => KnownType a where
-    -- | Convert a Haskell value to the corresponding PLC value.
+    -- | Reflect a Haskell value to the corresponding PLC value.
     -- 'Left' represents a conversion failure.
     makeKnown :: MonadError Text m => a -> m (Term TyName Name ())
 
     -- See Note [Evaluators].
-    -- | Convert a PLC value to the corresponding Haskell value.
-    readKnown :: Monad m => Evaluator Term m -> Term TyName Name () -> ConvertT m a
+    -- | Reflect a PLC value to the corresponding Haskell value.
+    readKnown :: Monad m => Evaluator Term m -> Term TyName Name () -> ReflectT m a
 
 readKnownM
     :: (Monad m, KnownType a)
-    => Term TyName Name () -> EvaluateT ConvertT m a
+    => Term TyName Name () -> EvaluateT ReflectT m a
 readKnownM term = withEvaluator $ \eval -> readKnown eval term
-
-instance KnownTypeAst () where
-    toTypeAst _ = unit
 
 -- Encode '()' from Haskell as @all r. r -> r@ from PLC.
 -- This is a very special instance, because it's used to define functions that are needed for
 -- other instances, so we keep it here.
 instance KnownType () where
+    toTypeAst _ = unit
+
     -- We need this matching, because otherwise Haskell expressions are thrown away rather than being
     -- evaluated and we use 'unsafePerformIO' in multiple places, so we want to compute the '()' just
     -- for side effects that the evaluation may cause.
@@ -506,33 +286,51 @@ instance KnownType () where
     readKnown eval term = do
         let int1 = TyApp () (TyBuiltin () TyInteger) (TyInt () 4)
             asInt1 = Constant () . BuiltinInt () 1
-        res <- convertM . eval mempty . Apply () (TyInst () term int1) $ asInt1 1
+        res <- makeRightReflectT . eval mempty . Apply () (TyInst () term int1) $ asInt1 1
         case res of
             Constant () (BuiltinInt () 1 1) -> pure ()
             _                               -> throwError "Not a builtin ()"
+
+instance KnownNat s => KnownType (Sized Integer s) where
+    toTypeAst _ = TyApp () (TyBuiltin () TyInteger) (TyInt () $ natVal @s Proxy)
+
+    makeKnown (Sized i) = pure $ Constant () (BuiltinInt () (natVal @s Proxy) i)
+
+    readKnown eval term = do
+        res <- makeRightReflectT $ eval mempty term
+        case res of
+            Constant () (BuiltinInt () s' i)
+                | s' == natVal @s Proxy -> pure $ Sized i
+                | otherwise             -> throwError "Size mismatch"
+            _                                -> throwError "Not a builtin Int"
+
+instance KnownType a => KnownType (EvaluationResult a) where
+    toTypeAst _ = toTypeAst @a Proxy
+
+    -- 'EvaluationFailure' on the Haskell side becomes 'Error' on the PLC side.
+    makeKnown EvaluationFailure     = pure . Error () $ toTypeAst @a Proxy
+    makeKnown (EvaluationSuccess x) = makeKnown x
+
+    -- There are two 'EvaluationResult's here: an external one (which any 'KnownType'
+    -- instance has to deal with) and an internal one (specific to this particular instance).
+    -- Our approach is to always return 'EvaluationSuccess' for the external 'EvaluationResult'
+    -- and catch all 'EvaluationFailure's in the internal 'EvaluationResult'.
+    -- This allows *not* to short-circuit when 'readKnown' fails to read a Haskell value.
+    -- Instead the user gets an explicit @EvaluationResult a@ and evaluation proceeds normally.
+    readKnown eval term = makeReflectT $ EvaluationSuccess <$> do
+        res <- eval mempty term
+        fmap (fmap join . sequence) . runReflectT $ traverse (readKnown eval) res
 
 addInteger
     :: KnownNat s => Sized Integer s -> Sized Integer s -> EvaluationResult (Sized Integer s)
 addInteger = undefined
 
--- instance KnownLit s => KnownType (Sized Integer s) where
---     toTypeAst _ = undefined
---     makeKnown = undefined
---     readKnown = undefined
-
-instance KnownNat s => KnownTypeAst (Sized Integer s) where
-    toTypeAst = undefined
-
-instance KnownNat s => KnownType (Sized Integer s) where
-    makeKnown = undefined
-    readKnown = undefined
-
-instance KnownTypeAst a => KnownTypeAst (EvaluationResult a) where
-    toTypeAst = undefined
-
-instance KnownType a => KnownType (EvaluationResult a) where
-    makeKnown = undefined
-    readKnown = undefined
+addIntegerPipe :: BuiltinPipe
+addIntegerPipe =
+    BuiltinPipeAllSize $ \(_ :: Proxy s) ->
+    BuiltinPipeArg $ \x ->
+    BuiltinPipeArg $ \y ->
+    BuiltinPipeRes $ addInteger @s x y
 
 
 
@@ -549,56 +347,6 @@ instance KnownType a => KnownType (EvaluationResult a) where
 
 
 
-
-
--- -- | Built-in types indexed by @size@.
--- data BuiltinSized
---     = BuiltinSizedInt
---     | BuiltinSizedBS
---     | BuiltinSizedSize
---     deriving (Show, Eq)
-
--- -- | Built-in types indexed by @size@ along with their denotation.
--- data TypedBuiltinSized a where
---     TypedBuiltinSizedInt  :: TypedBuiltinSized Integer
---     TypedBuiltinSizedBS   :: TypedBuiltinSized BSL.ByteString
---     -- See Note [Semantics of sizes].
---     TypedBuiltinSizedSize :: TypedBuiltinSized ()
-
--- -- | Type-level sizes.
--- data SizeEntry size
---     = SizeValue Size  -- ^ A constant size.
---     | SizeBound size  -- ^ A bound size variable.
---     deriving (Eq, Ord, Functor)
--- -- We write @SizeEntry Size@ sometimes, so this data type is not perfect, but it works fine.
-
--- -- | Built-in types.
--- data BuiltinType size
---     = BuiltinSized (SizeEntry size) BuiltinSized
-
--- -- | Built-in types. A type is considired "built-in" if it can appear in the type signature
--- -- of a primitive operation. So @boolean@ is considered built-in even though it is defined in PLC
--- -- and is not primitive.
--- data TypedBuiltin size a where
---     TypedBuiltinSized :: SizeEntry size -> TypedBuiltinSized a -> TypedBuiltin size a
---     -- Any type that implements 'KnownType' can be lifted to a 'TypedBuiltin',
---     -- because any such type has a PLC representation and provides conversions back and forth
---     -- between Haskell and PLC and that's all we need.
---     TypedBuiltinDyn   :: KnownType dyn => TypedBuiltin size dyn
-
-
-
-
-
-
-
-
-
-
--- instance (size ~ Size, PrettyDynamic a) => Pretty (KnownTypeValue a) where
---     pretty = undefined
---     pretty (TypedBuiltinValue (TypedBuiltinSized se _) x) = pretty se <+> "!" <+> prettyDynamic x
---     pretty (TypedBuiltinValue TypedBuiltinDyn          x) = prettyDynamic x
 
 
 
@@ -608,7 +356,7 @@ instance KnownType a => KnownType (EvaluationResult a) where
 -- I attempted to unify various typed things, but sometimes type variables must be universally
 -- quantified, sometimes they must be existentially quatified. And those are distinct type variables.
 
--- -- | Convert a 'TypedBuiltinSized' to its untyped counterpart.
+-- -- | Reflect a 'TypedBuiltinSized' to its untyped counterpart.
 -- eraseTypedBuiltinSized :: TypedBuiltinSized a -> BuiltinSized
 -- eraseTypedBuiltinSized TypedBuiltinSizedInt  = BuiltinSizedInt
 -- eraseTypedBuiltinSized TypedBuiltinSizedBS   = BuiltinSizedBS
