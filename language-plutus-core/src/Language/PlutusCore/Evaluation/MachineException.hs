@@ -10,7 +10,7 @@ module Language.PlutusCore.Evaluation.MachineException
     , MachineException (..)
     ) where
 
-import           Language.PlutusCore.Constant
+-- import           Language.PlutusCore.Constant
 import           Language.PlutusCore.Name
 import           Language.PlutusCore.Pretty.Plc
 import           Language.PlutusCore.Type
@@ -26,7 +26,7 @@ data MachineError err
       -- ^ An attempt to reduce a not immediately reducible application.
     | OpenTermEvaluatedMachineError
       -- ^ An attempt to evaluate an open term.
-    | ConstAppMachineError ConstAppError
+    | ConstAppMachineError Text
       -- ^ An attempt to compute a constant application resulted in 'ConstAppError'.
     | OtherMachineError err
     deriving (Eq)
@@ -37,9 +37,9 @@ data MachineException err = MachineException
     , _machineExceptionCause :: Term TyName Name ()  -- ^ A 'Term' that caused the error.
     } deriving (Eq)
 
-instance ( PrettyBy config (Constant ())
-         , PrettyBy config (Value TyName Name ())
-         , Pretty err
+instance -- ( PrettyBy config (Constant ())
+         -- , PrettyBy config (Value TyName Name ())
+         ( Pretty err
          ) => PrettyBy config (MachineError err) where
     prettyBy _      NonPrimitiveInstantiationMachineError =
         "Cannot reduce a not immediately reducible type instantiation."
@@ -49,8 +49,8 @@ instance ( PrettyBy config (Constant ())
         "Cannot reduce a not immediately reducible application."
     prettyBy _      OpenTermEvaluatedMachineError         =
         "Cannot evaluate an open term."
-    prettyBy config (ConstAppMachineError constAppError)  =
-        prettyBy config constAppError
+    prettyBy _      (ConstAppMachineError constAppError)  =
+        pretty constAppError
     prettyBy _      (OtherMachineError err)               =
         pretty err
 

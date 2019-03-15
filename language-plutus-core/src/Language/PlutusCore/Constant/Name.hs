@@ -1,3 +1,5 @@
+{-
+
 {-# LANGUAGE RankNTypes #-}
 
 module Language.PlutusCore.Constant.Name
@@ -217,3 +219,4 @@ typedSizeOfInteger =
         TypeSchemeAllSize $ \s ->
             TypeSchemeBuiltin (TypedBuiltinSized (SizeBound s) TypedBuiltinSizedInt) `TypeSchemeArrow`
             TypeSchemeBuiltin (TypedBuiltinSized (SizeBound s) TypedBuiltinSizedSize)
+-}

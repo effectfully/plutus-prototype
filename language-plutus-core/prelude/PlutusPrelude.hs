@@ -60,6 +60,7 @@ module PlutusPrelude ( -- * Reëxports from base
                      , foldMapM
                      , repeatM
                      , (?)
+                     , (<?)
                      , hoist
                      -- * Reëxports from "Data.Text.Prettyprint.Doc"
                      , (<+>)
@@ -94,6 +95,7 @@ module PlutusPrelude ( -- * Reëxports from base
                      -- * GHCi
                      , printPretty
                      -- * Text
+                     , Text
                      , showText
                      ) where
 
@@ -116,6 +118,7 @@ import           Data.Functor.Foldable                   (Base, Corecursive, Rec
 import           Data.List                               (foldl')
 import           Data.List.NonEmpty                      (NonEmpty (..))
 import           Data.Maybe                              (fromMaybe, isJust, isNothing)
+import           Data.Text                               (Text)
 import qualified Data.Text                               as T
 import qualified Data.Text.Encoding                      as TE
 import           Data.Text.Prettyprint.Doc
@@ -131,7 +134,7 @@ import           GHC.Natural                             (Natural)
 
 import           Data.Functor.Compose
 
-infixr 2 ?
+infixr 2 ?, <?
 infixl 4 <<$>>, <<*>>
 
 -- | This class is used in order to provide default implementations of 'PrettyBy' for
@@ -235,7 +238,12 @@ instance Functor f => Functor (PairT b f) where
     fmap f (PairT p) = PairT $ fmap (fmap f) p
 
 (?) :: Alternative f => Bool -> a -> f a
-(?) b x = x <$ guard b
+True  ? x = pure x
+False ? _ = empty
+
+(<?) :: (Applicative g, Alternative f) => Bool -> g b -> g (f b)
+True  <? a = pure <$> a
+False <? _ = pure empty
 
 -- | Like a version of 'everywhere' for recursion schemes.
 hoist :: (Recursive t, Corecursive t) => (Base t t -> Base t t) -> t -> t

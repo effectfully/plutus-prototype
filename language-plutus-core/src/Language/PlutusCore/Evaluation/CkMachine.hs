@@ -6,23 +6,23 @@ module Language.PlutusCore.Evaluation.CkMachine
     ( CkMachineException
     , EvaluationResult (..)
     , EvaluationResultDef
-    , applyEvaluateCkBuiltinName
+--     , applyEvaluateCkBuiltinName
     , evaluateCk
     , runCk
     ) where
 
-import           Language.PlutusCore.Constant.Apply
-import           Language.PlutusCore.Constant.Typed
+-- import           Language.PlutusCore.Constant.Apply
+import           Language.PlutusCore.Constant.Reflect
 import           Language.PlutusCore.Evaluation.MachineException
 import           Language.PlutusCore.Evaluation.Result
 import           Language.PlutusCore.Name
 import           Language.PlutusCore.Type
-import           Language.PlutusCore.View
+-- import           Language.PlutusCore.View
 import           PlutusPrelude
 
 import           Data.Functor.Identity
 
-infix 4 |>, <|
+infix 4 |>, <|, <<|
 
 -- | The CK machine throws this error when it encounters a 'DynBuiltinName'.
 data NoDynamicBuiltinNamesMachineError = NoDynamicBuiltinNamesMachineError
@@ -31,7 +31,8 @@ data NoDynamicBuiltinNamesMachineError = NoDynamicBuiltinNamesMachineError
 type CkMachineException = MachineException NoDynamicBuiltinNamesMachineError
 
 data Frame
-    = FrameApplyFun (Value TyName Name ())             -- ^ @[V _]@
+    = FrameApplyLam (Name ()) (Value TyName Name ())             -- ^ @[V _]@
+    | FrameApplyPipe BuiltinPipe
     | FrameApplyArg (Term TyName Name ())              -- ^ @[_ N]@
     | FrameTyInstArg (Type TyName ())                  -- ^ @{_ A}@
     | FrameUnwrap                                      -- ^ @(unwrap _)@
@@ -90,6 +91,15 @@ stack |> constant@Constant{}    = stack <| constant
 _     |> Error{}                = EvaluationFailure
 _     |> var@Var{}              = throwCkMachineException OpenTermEvaluatedMachineError var
 
+(<<|) :: Context -> BuiltinPipe -> EvaluationResultDef
+[] <<| BuiltinPipeRes x = undefined
+FrameApplyArg arg : stack <<| BuiltinPipeArg cont = _ cont arg
+
+toBuiltinPipe :: BuiltinName -> BuiltinPipe
+toBuiltinPipe AddInteger = addIntegerPipe
+
+-- (\x -> x) (addInteger {1}) 5 5
+
 -- | The returning part of the CK machine. Rules are as follows:
 --
 -- > s , {_ A}           ◁ abs α K M  ↦ s ▷ M
@@ -101,12 +111,21 @@ _     |> var@Var{}              = throwCkMachineException OpenTermEvaluatedMachi
 -- > s , (wrap α S _)    ◁ V          ↦ s ◁ wrap α S V
 -- > s , (unwrap _)      ◁ wrap α A V ↦ s ◁ V
 (<|) :: Context -> Value TyName Name () -> EvaluationResultDef
-[]                             <| term    = EvaluationSuccess term
-FrameTyInstArg ty      : stack <| fun     = instantiateEvaluate stack ty fun
-FrameApplyArg arg      : stack <| fun     = FrameApplyFun fun : stack |> arg
-FrameApplyFun fun      : stack <| arg     = applyEvaluate stack fun arg
-FrameIWrap ann pat arg : stack <| value   = stack <| IWrap ann pat arg value
-FrameUnwrap            : stack <| wrapped = case wrapped of
+[]                              <| term    = EvaluationSuccess term  -- TODO: Unfold builtins?
+FrameTyInstArg ty       : stack <| fun     = tyInstEvaluate stack fun ty
+FrameApplyArg arg       : stack <| fun     = case fun of
+    LamAbs _ name _ body           -> FrameApplyLam name body             : stack |> arg
+    Builtin _ (BuiltinName _ name) -> FrameApplyPipe (toBuiltinPipe name) : stack |> arg
+    _                              ->
+        throwCkMachineException NonPrimitiveApplicationMachineError $ Apply () fun arg
+FrameApplyLam name body : stack <| arg     = stack |> substituteDb name arg body
+FrameApplyPipe pipe     : stack <| arg     = do
+    resOrErr <- runEvaluateCkT $ applyBuiltinPipe pipe arg
+    case resOrErr of
+        Left err  -> throwCkMachineException (ConstAppMachineError err) arg  -- TODO: Err, it shouldn't be 'arg'.
+        Right res -> _ res
+FrameIWrap ann pat arg  : stack <| value   = stack <| IWrap ann pat arg value
+FrameUnwrap             : stack <| wrapped = case wrapped of
     IWrap _ _ _ term -> stack <| term
     term             -> throwCkMachineException NonWrapUnwrappedMachineError term
 
@@ -114,12 +133,12 @@ FrameUnwrap            : stack <| wrapped = case wrapped of
 -- In case of 'TyAbs' just ignore the type. Otherwise check if the term is an
 -- iterated application of a 'BuiltinName' to a list of 'Value's and, if succesful,
 -- apply the term to the type via 'TyInst'.
-instantiateEvaluate :: Context -> Type TyName () -> Term TyName Name () -> EvaluationResultDef
-instantiateEvaluate stack _  (TyAbs _ _ _ body) = stack |> body
-instantiateEvaluate stack ty fun
-    | isJust $ termAsPrimIterApp fun = stack <| TyInst () fun ty
-    | otherwise                      =
-          throwCkMachineException NonPrimitiveInstantiationMachineError fun
+tyInstEvaluate :: Context -> Term TyName Name () -> Type TyName () -> EvaluationResultDef
+tyInstEvaluate stack (TyAbs _ _ _ body) _  = stack |> body
+tyInstEvaluate stack fun                ty = undefined
+--     | isJust $ termAsPrimIterApp fun = stack <| TyInst () fun ty
+--     | otherwise                      =
+--           throwCkMachineException NonPrimitiveInstantiationMachineError fun
 
 -- | Apply a function to an argument and proceed.
 -- If the function is not a 'LamAbs', then 'Apply' it to the argument and view this
@@ -128,24 +147,27 @@ instantiateEvaluate stack ty fun
 -- depending on whether 'BuiltinName' is saturated or not.
 applyEvaluate :: Context -> Value TyName Name () -> Value TyName Name () -> EvaluationResultDef
 applyEvaluate stack (LamAbs _ name _ body) arg = stack |> substituteDb name arg body
-applyEvaluate stack fun                    arg =
-    let term = Apply () fun arg in
-        case termAsPrimIterApp term of
-            Nothing                                 ->
-                throwCkMachineException NonPrimitiveApplicationMachineError term
-            Just (IterApp DynamicStagedBuiltinName{}     _    ) ->
-                throwCkMachineException (OtherMachineError NoDynamicBuiltinNamesMachineError) term
-            Just (IterApp (StaticStagedBuiltinName name) spine) ->
-                case applyEvaluateCkBuiltinName name spine of
-                    ConstAppSuccess term' -> stack <| term'
-                    ConstAppFailure       -> EvaluationFailure
-                    ConstAppStuck         -> stack <| term
-                    ConstAppError err     ->
-                        throwCkMachineException (ConstAppMachineError err) term
+applyEvaluate stack fun                    arg = undefined
+--     let term = Apply () fun arg in
+--         case termAsPrimIterApp term of
+--             Nothing                                 ->
+--                 throwCkMachineException NonPrimitiveApplicationMachineError term
+--             Just (IterApp DynamicStagedBuiltinName{}     _    ) ->
+--                 throwCkMachineException (OtherMachineError NoDynamicBuiltinNamesMachineError) term
+--             Just (IterApp (StaticStagedBuiltinName name) spine) ->
+--                 case applyEvaluateCkBuiltinName name spine of
+--                     ConstAppSuccess term' -> stack <| term'
+--                     ConstAppFailure       -> EvaluationFailure
+--                     ConstAppStuck         -> stack <| term
+--                     ConstAppError err     ->
+--                         throwCkMachineException (ConstAppMachineError err) term
 
-applyEvaluateCkBuiltinName :: BuiltinName -> [Value TyName Name ()] -> ConstAppResultDef
-applyEvaluateCkBuiltinName name =
-    runIdentity . runEvaluate (const $ Identity . evaluateCk) . applyBuiltinName name
+-- applyEvaluateCkBuiltinName :: BuiltinName -> [Value TyName Name ()] -> ConstAppResultDef
+-- applyEvaluateCkBuiltinName name =
+--     runIdentity . runEvaluate (const $ Identity . evaluateCk) . applyBuiltinName name
+
+runEvaluateCkT :: EvaluateT ReflectT Identity a -> EvaluationResult (Either Text a)
+runEvaluateCkT = runIdentity . runReflectT . runEvaluateT (\_ -> Identity . evaluateCk)
 
 -- | Evaluate a term using the CK machine. May throw a 'CkMachineException'.
 -- This differs from the spec version: we do not have the following rule:

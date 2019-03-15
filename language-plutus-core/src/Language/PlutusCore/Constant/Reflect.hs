@@ -1,0 +1,394 @@
+
+-- | This module assigns types to built-ins.
+-- See the @plutus/language-plutus-core/docs/Constant application.md@
+-- article for how this emerged.
+
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds         #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TypeApplications  #-}
+-- {-# LANGUAGE TypeInType                #-}
+
+{-# LANGUAGE TypeFamilies      #-}
+
+module Language.PlutusCore.Constant.Reflect where
+--     ( {- BuiltinSized (..)
+--     , TypedBuiltinSized (..)
+--     , SizeEntry (..)
+--     , BuiltinType (..) -}
+--     --   TypedBuiltin (..)
+--     -- , TypedBuiltinValue (..)
+--       TypeScheme (..)
+--     , TypedBuiltinName (..)
+--     , DynamicBuiltinNameMeaning (..)
+--     , DynamicBuiltinNameDefinition (..)
+--     , DynamicBuiltinNameMeanings (..)
+--     , Evaluator
+--     , Evaluate
+--     , Reflect
+--     , KnownType (..)
+--     , eraseTypedBuiltinSized
+--     , runEvaluate
+--     , withEvaluator
+--     , readKnownM
+--     ) where
+
+import           Language.PlutusCore.Constant.Dynamic.Pretty
+import           Language.PlutusCore.Evaluation.Result
+import           Language.PlutusCore.Lexer.Type
+import           Language.PlutusCore.Name
+import           Language.PlutusCore.Name
+import           Language.PlutusCore.Pretty
+import           Language.PlutusCore.Quote
+import           Language.PlutusCore.StdLib.Data.Unit
+import           Language.PlutusCore.Type                    hiding (Value)
+import           PlutusPrelude
+
+import           Control.Monad.Except
+import           Control.Monad.Reader
+import           Control.Monad.Trans.Inner
+import           Data.Bits                                   (bit)
+import qualified Data.ByteString.Lazy.Char8                  as BSL
+import           Data.Map                                    (Map)
+import           Data.Proxy
+import           Data.Text                                   (Text)
+import           GHC.TypeNats
+
+newtype Sized a (s :: k) = Sized
+    { unSized :: a
+    }
+
+withKnownNat :: Natural -> (forall n. KnownNat n => Proxy n -> c) -> c
+withKnownNat nat k =
+    case someNatVal nat of
+        SomeNat proxy -> k proxy
+
+data BuiltinPipe where
+    BuiltinPipeRes     :: KnownType a => a -> BuiltinPipe
+    -- BuiltinPipeAllType :: (Type TyName () -> BuiltinPipe) -> BuiltinPipe
+    BuiltinPipeAllSize :: (forall s. KnownNat s => Proxy s -> BuiltinPipe) -> BuiltinPipe
+    BuiltinPipeArg     :: KnownType a => (a -> BuiltinPipe) -> BuiltinPipe
+
+-- TODO: better error messages.
+
+applyBuiltinPipe :: Monad m => BuiltinPipe -> Term TyName Name () -> EvaluateT ReflectT m BuiltinPipe
+applyBuiltinPipe (BuiltinPipeArg cont) term = cont <$> readKnownM term
+applyBuiltinPipe _                     _    = throwError "Cannot apply a 'BuiltinPipe' to a term"
+
+-- tyInstTypeBuiltinPipe :: Monad m => BuiltinPipe -> Type TyName () -> EvaluateT ReflectT m BuiltinPipe
+-- tyInstTypeBuiltinPipe (BuiltinPipeAllType cont) ty = pure $ cont ty
+-- tyInstTypeBuiltinPipe _                         _  = throwError "Cannot instantiate a 'BuiltinPipe' at a type"
+
+tyInstSizeBuiltinPipe :: Monad m => BuiltinPipe -> Type TyName () -> EvaluateT ReflectT m BuiltinPipe
+tyInstSizeBuiltinPipe (BuiltinPipeAllSize cont) ty =
+    -- TODO: evaluate `ty`.
+    case ty of
+        TyInt _ size -> pure $ withKnownNat size cont
+        _            -> throwError "Cannot instantiate a 'BuiltinPipe' at a non-size"
+tyInstSizeBuiltinPipe _                         _  = throwError "Cannot instantiate a 'BuiltinPipe' at a size"
+
+extrBuiltinPipe :: Monad m => BuiltinPipe -> EvaluateT ReflectT m (Term TyName Name ())
+extrBuiltinPipe (BuiltinPipeRes x) = makeKnown x
+extrBuiltinPipe _                  = throwError "Cannot extract a resulting value from a 'BuiltinPipe'"
+
+-- BuiltinPipeAll $ \t1 ->
+-- BuiltinPipeAll $ \t2 ->
+-- (typeSchema, operation)
+
+data BuiltinBody = BuiltinBody
+    { _builtinBodyType :: Type TyName ()
+    , _builtinBodyPipe :: BuiltinPipe
+    }
+
+data BuiltinDef name = BuiltinDef
+    { _builtinDefName :: name
+    , _builtinDefBody :: BuiltinBody
+    }
+
+newtype DynBuiltinBodies = DynBuiltinBodies
+    { unDynBuiltinPipes :: Map DynamicBuiltinName BuiltinBody
+    } deriving (Semigroup, Monoid)
+
+type Evaluator f m = DynBuiltinBodies -> f TyName Name () -> m EvaluationResultDef
+
+newtype EvaluateT t m a = EvaluateT
+    { unEvaluateT :: ReaderT (Evaluator Term m) (t m) a
+    } deriving
+        ( Functor, Applicative, Monad, Alternative, MonadPlus
+        , MonadReader (Evaluator Term m)
+        , MonadError e
+        )
+
+runEvaluateT :: Evaluator Term m -> EvaluateT t m a -> t m a
+runEvaluateT eval (EvaluateT a) = runReaderT a eval
+
+withEvaluator :: (Evaluator Term m -> t m a) -> EvaluateT t m a
+withEvaluator = EvaluateT . ReaderT
+
+{- Note [Semantics of dynamic built-in types]
+We only allow dynamic built-in types that
+
+1. can be represented using static types in PLC. For example Haskell's 'Char' can be represented as
+@integer 4@ in PLC. This restriction makes the dynamic built-in types machinery somewhat similar to
+type aliases in Haskell (defined via the @type@ keyword). The reason for this restriction is that
+storing values of arbitrary types of a host language in the AST of a target language is commonly far
+from being trivial, hence we do not support this right now, but we plan to figure out a way to allow
+such extensions to the AST
+2. are of kind @*@. Dynamic built-in types that are not of kind @*@ can be encoded via recursive
+instances. For example:
+
+    instance KnownType dyn => KnownType [dyn] where
+        ...
+
+This is due to the fact that we use Haskell classes to assign semantics to dynamic built-in types and
+since it's anyway impossible to assign a meaning to an open PLC type, because you'd have to somehow
+interpret free variables, we're only interested in closed PLC types and those can be handled by
+recursive instances as shown above.
+
+Since type classes are globally coherent by design, we also have global coherence for dynamic built-in
+types for free. Any dynamic built-in type means the same thing regardless of the blockchain it's
+added to. It may prove to be restrictive, but it's a good property to start with, because less things
+can silently stab you in the back.
+
+An @KnownType dyn@ instance provides
+
+1. a way to encode @dyn@ as a PLC type ('getTypeEncoding')
+2. a function that encodes values of type @dyn@ as PLC terms ('makeKnown')
+3. a function that decodes PLC terms back to Haskell values ('readKnown')
+
+The last two are ought to constitute an isomorphism (modulo 'Maybe').
+-}
+
+{- Note [Converting PLC values to Haskell values]
+The first thought that comes to mind when you asked to convert a PLC value to the corresponding Haskell
+value is "just match on the AST". This works nicely for simple things like 'Char's which we encode as
+@integer@s, see the @KnownType Char@ instance below.
+
+But how to convert something more complicated like lists? A PLC list gets passed as argument to
+a built-in after it gets evaluated to WHNF. We can't just match on the AST here, because after
+the initial lambda it can be anything there: function applications, other built-ins, recursive data,
+anything. "Well, just normalize it" -- not so fast: for one, we did not have a term normalization
+procedure at the moment this note was written, for two, it's not something that can be easily done,
+because you have to carefully handle uniques (we generate new terms during evaluation) and perform type
+substitutions, because types must be preserved.
+
+Besides, matching on the AST becomes really complicated: you have to ensure that a term does have
+an expected semantics by looking at the term's syntax. Huge pattern matches followed by multiple
+checks that variables have equal names in right places and have distinct names otherwise. Making a
+mistake is absolutely trivial here. Of course, one could just omit checks and hope it'll work alright,
+but eventually it'll break and debugging won't be fun at all.
+
+So instead of dealing with syntax of terms, we deal with their semantics. Namely, we evaluate terms
+using some evaluator (normally, the CEK machine). For the temporary lack of ability to put values of
+arbitrary Haskell types into the Plutus Core AST, we convert PLC values to Haskell values and "emit"
+the latter via a combination of 'unsafePerformIO' and 'IORef'. For example, we fold a PLC list with
+a dynamic built-in name (called `emit`) that calls 'unsafePerformIO' over a Haskell function that
+appends an element to the list stored in an 'IORef':
+
+    plcListToHaskellList list =
+        evaluateCek anEnvironment (foldList {dyn} {unit} (\(r : unit) -> emit) unitval list)
+
+After evaluation finishes, we read a Haskell list from the 'IORef'
+(which requires another 'unsafePerformIO') and return it.
+-}
+
+{- Note [Evaluators]
+A dynamic built-in name can be applied to something that contains uninstantiated variables. There are
+several possible ways to handle that:
+
+1. each evaluator is required to perform substitutions to instantiate all variables in arguments to
+built-ins. The drawback is that this can be inefficient in cases when there are many applications of
+built-ins and arguments are of non-primitive types. Besides, substitution is tricky and is trivial to
+screw up
+2. we can break encapsulation and pass environments to the built-ins application machinery, so that it
+knows how to instantiate variables. This would work for the strict CEK machine, but the lazy
+CEK machine also has a heap and there can be other evaluators that have their internal state that
+can't just be thrown away and it's impossible for the built-ins application machinery to handle states
+of all possible evaluators beforehand
+3. or we can just require to pass the current evaluator with its encapsulated state to functions that
+evaluate built-in applications. The type of evaluators is this then:
+
+    type Evaluator f = DynamicBuiltinNameMeanings -> f TyName Name () -> EvaluationResult
+
+so @Evaluator Term@ receives a map with meanings of dynamic built-in names which extends the map the
+evaluator already has (this is needed, because we add new dynamic built-in names during conversion of
+PLC values to Haskell values, see Note [Converting PLC values to Haskell values]), a 'Term' to evaluate
+and returns an 'EvaluationResult' (we may want to later add handling of errors here). Thus, whenever
+we want to resume evaluation during computation of a dynamic built-in application, we just call the
+received evaluator
+
+(3) seems best, so it's what is implemented.
+-}
+
+-- | The monad in which we convert PLC terms to Haskell values.
+-- Conversion can fail with
+--
+-- 1. 'EvaluationFailure' if at some point constants stop fitting into specified sizes.
+-- 2. A textual error if a PLC term can't be converted to a Haskell value of a specified type.
+newtype ReflectT m a = ReflectT
+    { unReflectT :: ExceptT Text (InnerT EvaluationResult m) a
+    } deriving
+        ( Functor, Applicative, Monad
+        , MonadError Text
+        )
+
+-- GHC does not want to derive this for some reason.
+instance MonadTrans ReflectT where
+    lift = ReflectT . lift . lift
+
+-- Uses the 'Alternative' instance of 'EvaluationResult'.
+instance Monad m => Alternative (ReflectT m) where
+    empty = ReflectT . lift $ llift empty
+    ReflectT (ExceptT (InnerT m)) <|> ReflectT (ExceptT (InnerT n)) =
+        ReflectT . ExceptT . InnerT $ (<|>) <$> m <*> n
+
+runReflectT :: ReflectT m a -> m (EvaluationResult (Either Text a))
+runReflectT = unInnerT . runExceptT . unReflectT
+
+makeReflectT :: m (EvaluationResult (Either Text a)) -> ReflectT m a
+makeReflectT = ReflectT . ExceptT . InnerT
+
+makeRightReflectT :: Monad m => m (EvaluationResult a) -> ReflectT m a
+makeRightReflectT = ReflectT . lift . InnerT
+
+-- See Note [Semantics of dynamic built-in types].
+-- See Note [Reflecting PLC values to Haskell values].
+-- Types and terms are supposed to be closed, hence no 'Quote'.
+-- | Haskell types known to exist on the PLC side.
+class KnownType a where
+    -- | The type representing @a@ used on the PLC side.
+    toTypeAst :: proxy a -> Type TyName ()
+
+    -- | Reflect a Haskell value to the corresponding PLC value.
+    -- 'Left' represents a conversion failure.
+    makeKnown :: MonadError Text m => a -> m (Term TyName Name ())
+
+    -- See Note [Evaluators].
+    -- | Reflect a PLC value to the corresponding Haskell value.
+    readKnown :: Monad m => Evaluator Term m -> Term TyName Name () -> ReflectT m a
+
+readKnownM
+    :: (Monad m, KnownType a)
+    => Term TyName Name () -> EvaluateT ReflectT m a
+readKnownM term = withEvaluator $ \eval -> readKnown eval term
+
+-- Encode '()' from Haskell as @all r. r -> r@ from PLC.
+-- This is a very special instance, because it's used to define functions that are needed for
+-- other instances, so we keep it here.
+instance KnownType () where
+    toTypeAst _ = unit
+
+    -- We need this matching, because otherwise Haskell expressions are thrown away rather than being
+    -- evaluated and we use 'unsafePerformIO' in multiple places, so we want to compute the '()' just
+    -- for side effects that the evaluation may cause.
+    makeKnown () = pure unitval
+
+    readKnown eval term = do
+        let int1 = TyApp () (TyBuiltin () TyInteger) (TyInt () 4)
+            asInt1 = Constant () . BuiltinInt () 1
+        res <- makeRightReflectT . eval mempty . Apply () (TyInst () term int1) $ asInt1 1
+        case res of
+            Constant () (BuiltinInt () 1 1) -> pure ()
+            _                               -> throwError "Not a builtin ()"
+
+instance KnownNat s => KnownType (Sized Integer s) where
+    toTypeAst _ = TyApp () (TyBuiltin () TyInteger) (TyInt () $ natVal @s Proxy)
+
+    makeKnown (Sized i) = pure $ Constant () (BuiltinInt () (natVal @s Proxy) i)
+
+    readKnown eval term = do
+        res <- makeRightReflectT $ eval mempty term
+        case res of
+            Constant () (BuiltinInt () s' i)
+                | s' == natVal @s Proxy -> pure $ Sized i
+                | otherwise             -> throwError "Size mismatch"
+            _                                -> throwError "Not a builtin Int"
+
+instance KnownType a => KnownType (EvaluationResult a) where
+    toTypeAst _ = toTypeAst @a Proxy
+
+    -- 'EvaluationFailure' on the Haskell side becomes 'Error' on the PLC side.
+    makeKnown EvaluationFailure     = pure . Error () $ toTypeAst @a Proxy
+    makeKnown (EvaluationSuccess x) = makeKnown x
+
+    -- There are two 'EvaluationResult's here: an external one (which any 'KnownType'
+    -- instance has to deal with) and an internal one (specific to this particular instance).
+    -- Our approach is to always return 'EvaluationSuccess' for the external 'EvaluationResult'
+    -- and catch all 'EvaluationFailure's in the internal 'EvaluationResult'.
+    -- This allows *not* to short-circuit when 'readKnown' fails to read a Haskell value.
+    -- Instead the user gets an explicit @EvaluationResult a@ and evaluation proceeds normally.
+    readKnown eval term = makeReflectT $ EvaluationSuccess <$> do
+        res <- eval mempty term
+        fmap (fmap join . sequence) . runReflectT $ traverse (readKnown eval) res
+
+-- | Return the @[-2^(8s - 1), 2^(8s - 1))@ bounds for integers of a given 'Size'.
+toBoundsInt :: Size -> (Integer, Integer)
+toBoundsInt s = (-b, b) where
+    b = bit (8 * fromIntegral s - 1)  -- This is much quicker than 2^n for large n
+
+-- | Check whether an 'Integer' is in the @[-2^(8s - 1), 2^(8s - 1))@ interval.
+checkBoundsInt :: Size -> Integer -> Bool
+checkBoundsInt s i = s /= 0 && low <= i && i < high where
+    (low, high) = toBoundsInt s
+
+getSizedInteger :: forall f s. (Alternative f, KnownNat s) => Integer -> f (Sized Integer s)
+getSizedInteger i = checkBoundsInt (natVal @s Proxy) i <? Sized $ i
+
+type family UnsizeBuiltinType a where
+    UnsizeBuiltinType (Sized a s) = a
+    UnsizeBuiltinType a           = a
+
+type family UnliftBuiltinType a where
+    UnliftBuiltinType (a -> r)             = UnsizeBuiltinType a -> UnliftBuiltinType r
+    UnliftBuiltinType (EvaluationResult r) = UnsizeBuiltinType r
+
+class LiftBuiltin a where
+    liftBuiltin :: UnliftBuiltinType a -> a
+
+instance LiftBuiltin r => LiftBuiltin (Sized a s -> r) where
+    liftBuiltin f (Sized x) = liftBuiltin $ f x
+
+instance KnownNat s => LiftBuiltin (EvaluationResult (Sized Integer s)) where
+    liftBuiltin = getSizedInteger
+
+addInteger
+    :: KnownNat s => Sized Integer s -> Sized Integer s -> EvaluationResult (Sized Integer s)
+addInteger = liftBuiltin (+)
+
+addIntegerPipe :: BuiltinPipe
+addIntegerPipe =
+    BuiltinPipeAllSize $ \(_ :: Proxy s) ->
+    BuiltinPipeArg $ \x ->
+    BuiltinPipeArg $ \y ->
+    BuiltinPipeRes $ addInteger @s x y
+
+-- -- | A 'BuiltinName' with an associated 'TypeScheme'.
+-- data TypedBuiltinName a r = TypedBuiltinName BuiltinName (forall size. TypeScheme size a r)
+-- I attempted to unify various typed things, but sometimes type variables must be universally
+-- quantified, sometimes they must be existentially quatified. And those are distinct type variables.
+
+-- -- | Reflect a 'TypedBuiltinSized' to its untyped counterpart.
+-- eraseTypedBuiltinSized :: TypedBuiltinSized a -> BuiltinSized
+-- eraseTypedBuiltinSized TypedBuiltinSizedInt  = BuiltinSizedInt
+-- eraseTypedBuiltinSized TypedBuiltinSizedBS   = BuiltinSizedBS
+-- eraseTypedBuiltinSized TypedBuiltinSizedSize = BuiltinSizedSize
+
+-- instance Pretty BuiltinSized where
+--     pretty BuiltinSizedInt  = "integer"
+--     pretty BuiltinSizedBS   = "bytestring"
+--     pretty BuiltinSizedSize = "size"
+
+-- instance Pretty (TypedBuiltinSized a) where
+--     pretty = pretty . eraseTypedBuiltinSized
+
+-- instance Pretty size => Pretty (SizeEntry size) where
+--     pretty (SizeValue size) = pretty size
+--     pretty (SizeBound size) = pretty size
+
+-- instance Pretty size => Pretty (TypedBuiltin size a) where
+--     pretty (TypedBuiltinSized se tbs) = parens $ pretty tbs <+> pretty se
+--     TODO: do we want this entire thing to be 'PrettyBy' rather than 'Pretty'?
+--     This is just used in errors, so we probably do not care much.
+--     pretty dyn@TypedBuiltinDyn        = prettyPlcDef $ toTypeAst dyn
