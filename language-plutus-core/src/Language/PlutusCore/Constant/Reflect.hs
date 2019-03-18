@@ -1,3 +1,4 @@
+{-# LANGUAGE DefaultSignatures #-}
 
 -- | This module assigns types to built-ins.
 -- See the @plutus/language-plutus-core/docs/Constant application.md@
@@ -39,7 +40,6 @@ import           Language.PlutusCore.Constant.Dynamic.Pretty
 import           Language.PlutusCore.Evaluation.Result
 import           Language.PlutusCore.Lexer.Type
 import           Language.PlutusCore.Name
-import           Language.PlutusCore.Name
 import           Language.PlutusCore.Pretty
 import           Language.PlutusCore.Quote
 import           Language.PlutusCore.StdLib.Data.Unit
@@ -55,6 +55,8 @@ import           Data.Map                                    (Map)
 import           Data.Proxy
 import           Data.Text                                   (Text)
 import           GHC.TypeNats
+
+import           Data.List
 
 newtype Sized a (s :: k) = Sized
     { unSized :: a
@@ -79,19 +81,22 @@ applyBuiltinPipe _                     _    = throwError "Cannot apply a 'Builti
 
 -- tyInstTypeBuiltinPipe :: Monad m => BuiltinPipe -> Type TyName () -> EvaluateT ReflectT m BuiltinPipe
 -- tyInstTypeBuiltinPipe (BuiltinPipeAllType cont) ty = pure $ cont ty
--- tyInstTypeBuiltinPipe _                         _  = throwError "Cannot instantiate a 'BuiltinPipe' at a type"
+-- tyInstTypeBuiltinPipe _                         _  =
+--     throwError "Cannot instantiate a 'BuiltinPipe' at a type"
 
 tyInstSizeBuiltinPipe :: Monad m => BuiltinPipe -> Type TyName () -> EvaluateT ReflectT m BuiltinPipe
 tyInstSizeBuiltinPipe (BuiltinPipeAllSize cont) ty =
-    -- TODO: evaluate `ty`.
+    -- TODO: evaluate 'ty'.
     case ty of
         TyInt _ size -> pure $ withKnownNat size cont
         _            -> throwError "Cannot instantiate a 'BuiltinPipe' at a non-size"
-tyInstSizeBuiltinPipe _                         _  = throwError "Cannot instantiate a 'BuiltinPipe' at a size"
+tyInstSizeBuiltinPipe _                         _  =
+    throwError "Cannot instantiate a 'BuiltinPipe' at a size"
 
 extrBuiltinPipe :: Monad m => BuiltinPipe -> EvaluateT ReflectT m (Term TyName Name ())
 extrBuiltinPipe (BuiltinPipeRes x) = makeKnown x
-extrBuiltinPipe _                  = throwError "Cannot extract a resulting value from a 'BuiltinPipe'"
+extrBuiltinPipe _                  =
+    throwError "Cannot extract a resulting value from a 'BuiltinPipe'"
 
 -- BuiltinPipeAll $ \t1 ->
 -- BuiltinPipeAll $ \t2 ->
@@ -110,6 +115,11 @@ data BuiltinDef name = BuiltinDef
 newtype DynBuiltinBodies = DynBuiltinBodies
     { unDynBuiltinPipes :: Map DynamicBuiltinName BuiltinBody
     } deriving (Semigroup, Monoid)
+
+-- data StagedEvaluator f m = StagedEvaluator
+--     { _stagedEvaluatorType :: forall ann. Type TyName ann -> Type TyName ann
+--     , _stagedEvaluatorTerm :: Evaluator f m
+--     }
 
 type Evaluator f m = DynBuiltinBodies -> f TyName Name () -> m EvaluationResultDef
 
@@ -234,167 +244,6 @@ newtype ReflectT m a = ReflectT
         , MonadError Text
         )
 
--- []   , [(a, {g, f})]
--- []   , [(b, {d, e}) , (a, {g, f})]
--- [{c}], [(b, {d, e}) , (a, {g, f})]
-
--- {c} :: Tree Int
--- b : int
--- {d, e, f} : tree int
-
--- {e} :: Tree Int
--- d : int
--- {f} : tree int
-
---     a
---    / \
---   b   g
---  / \
--- c   d
---    / \
---   e   f
-
--- instance Functor Tree where
---   fmap f = go [] where
---       go []               (Leaf y)     = Leaf (f y)
---       go ((x, r) : stack) (Leaf y)     = Fork (f x) (Leaf (f y)) (go stack r)
---       go stack            (Fork x l r) = go ((x, r) : stack) l
-
---   b
---  / \
--- c   d
---    / \
---   e   f
-
--- b: go id {b} c
--- c: go (Fork b (Leaf c)) {} d
--- d: go (Fork b (Leaf c)) {f} e
--- e: go (Fork b (Leaf c) . Fork d (Leaf e)) {} f
-
---     a
---    / \
---   b   g
---  / \
--- c   d
-
--- a: go id {g} b
--- b: go id {d, g} c
--- c: go (Fork b (Leaf c)) {g} d
--- d: go (Fork a (Fork b (Leaf c)) (Leaf d)) g
-
---   b
---  / \
--- c   d
---    / \
---   e   f
---  / \
--- g   h
-
--- b: go id {b} c
--- c: go (Fork b (Leaf c)) {} d
--- d: go (Fork b (Leaf c)) {f} e
--- e: go (Fork b (Leaf c))) {h, f} g
--- g: go (Fork b (Leaf c) . Fork e (Leaf g)) {f} h -- WRONG
-
--- go [] b
--- go [Left (b, d)] c
--- go [Right (b, Leaf c)] d
--- go [Left (d, f), Right (b, Leaf c)] e
--- go [Left (e, h), Left (d, f), Right (b, Leaf c)] g
--- go [Right (e, Leaf g), Left (d, f), Right (b, Leaf c)] h
-
--- go [Right (d, Fork e (Leaf g) (Leaf h)), Right (b, Leaf c)] f
--- Fork b (Leaf c) (Fork d (Fork e (Leaf g) (Leaf h)) (Leaf f))
-
---   b
---  / \
--- c   d
---    / \
---   e   f
---      / \
---     g   h
-
--- go [] b
--- go [Left (b, d)] c
--- go [Right (b, Leaf c)] d
--- go [Left (d, f), Right (b, Leaf c)] e
--- go [Right (d, Leaf e), Right (b, Leaf c)] f
--- go [Left (f, h), Right (d, Leaf e), Right (b, Leaf c)] g
--- go [Right (f, Leaf g), Right (d, Leaf e), Right (b, Leaf c)] h
--- Fork b (Leaf c) (Fork d (Leaf e) (Fork f (Leaf g) (Leaf h)))
-
-
-data Tree a
-    = Leaf a
-    | Fork a (Tree a) (Tree a)
-    deriving (Show)
-
-instance Functor Tree where
-  fmap f = go [] where
-      go stack (Leaf x)     = roll stack (Leaf (f x))
-      go stack (Fork x l r) = go (Right (x, r) : stack) l
-
-      roll []                     t = t
-      roll (Right (x, r) : stack) t = go (Left (t, x) : stack) r
-      roll (Left  (l, x) : stack) t = roll stack (Fork (f x) l t)
-
--- data Dir = L | R
-
--- instance Functor Tree where
---   fmap f = go L id [] where
---       go _ k []               (Leaf y)     = k (Leaf $ f y)
---       go L k ((x, r) : stack) (Leaf y)     = go R (k . Fork (f x) (Leaf $ f y)) stack r
---       go R k ((x, r) : stack) (Leaf y)     = go R (Fork (f x) (k . Leaf $ f y)) stack r
---       go _ k stack            (Fork x l r) = go L k ((x, r) : stack) l
-
--- instance Functor Tree where
---   fmap f t = go [t] where
---       go []               (Leaf y)      = k (Leaf $ f y)
---       go (Left (x, r) : stack) (Leaf y) = go (Right (Fork (f x) . Leaf $ f y) : stack) r
---       go (Right k     : stack) (Leaf y)      = go R (Fork (f x) (k . Leaf $ f y)) stack r
---       go stack            (Fork x l r)  = go (Left (x, r) : stack) l
-
--- instance Functor Tree where
---   fmap f = go id [] where
---       go k []               (Leaf y)     = k (Leaf (f y))
---       go k ((x, r) : stack) (Leaf y)     = go (k . Fork (f x) (Leaf (f y))) stack r
---       go k stack            (Fork x l r) = go k ((x, r) : stack) l
-
-
---         ------ a ------
---        /               \
---     - b -             - i -
---    /     \           /     \
---   c       f         j       m
---  / \     / \       / \     / \
--- d   e   g   h     k   l   n   o
-test0 =
-    Fork 'a'
-        ( Fork 'b'
-            ( Fork 'c'
-                (Leaf 'd')
-                (Leaf 'e')
-            )
-            ( Fork 'f'
-                (Leaf 'g')
-                (Leaf 'h')
-            )
-        )
-        ( Fork 'i'
-            ( Fork 'j'
-                (Leaf 'k')
-                (Leaf 'l')
-            )
-            ( Fork 'm'
-                (Leaf 'n')
-                (Leaf 'o')
-            )
-        )
-
-test1 = fmap succ $ Fork 'a' (Fork 'b' (Leaf 'c') (Fork 'd' (Leaf 'e') (Leaf 'f'))) (Fork 'g' (Leaf 'h') (Leaf 'i'))
-
-test2 = fmap succ $ Fork 'a' (Fork 'b' (Leaf 'c') (Leaf 'd')) (Fork 'e' (Leaf 'f') (Fork 'g' (Leaf 'h') (Leaf 'i')))
-
 -- GHC does not want to derive this for some reason.
 instance MonadTrans ReflectT where
     lift = ReflectT . lift . lift
@@ -504,9 +353,14 @@ type family UnsizeBuiltinType a where
 type family UnliftBuiltinType a where
     UnliftBuiltinType (a -> r)             = UnsizeBuiltinType a -> UnliftBuiltinType r
     UnliftBuiltinType (EvaluationResult r) = UnsizeBuiltinType r
+    UnliftBuiltinType r                    = r
 
 class LiftBuiltin a where
     liftBuiltin :: UnliftBuiltinType a -> a
+    -- We can define this once and for all in fact by using the trick that allows to avoid
+    -- overlapping instances, but let's keep it simple for now.
+    default liftBuiltin :: UnliftBuiltinType a ~ a => UnliftBuiltinType a -> a
+    liftBuiltin = id
 
 instance LiftBuiltin r => LiftBuiltin (Sized a s -> r) where
     liftBuiltin f (Sized x) = liftBuiltin $ f x
@@ -514,16 +368,58 @@ instance LiftBuiltin r => LiftBuiltin (Sized a s -> r) where
 instance KnownNat s => LiftBuiltin (EvaluationResult (Sized Integer s)) where
     liftBuiltin = getSizedInteger
 
+instance LiftBuiltin Bool
+
+class LiftPipe a where
+    liftPipe :: a -> BuiltinPipe
+--     -- We can define this once and for all in fact by using the trick that allows to avoid
+--     -- overlapping instances, but let's keep it simple for now.
+--     default liftPipe :: UnliftBuiltinType a ~ a => UnliftBuiltinType a -> a
+--     liftPipe = id
+
+instance (KnownType a, LiftPipe r) => LiftPipe (a -> r) where
+    liftPipe f = BuiltinPipeArg $ liftPipe . f
+
+instance KnownType r => LiftPipe (EvaluationResult r) where
+    liftPipe = BuiltinPipeRes
+
 addInteger
-    :: KnownNat s => Sized Integer s -> Sized Integer s -> EvaluationResult (Sized Integer s)
+    :: forall s. KnownNat s
+    => Sized Integer s -> Sized Integer s -> EvaluationResult (Sized Integer s)
 addInteger = liftBuiltin (+)
+
+eqInteger
+    :: KnownNat s => Sized Integer s -> Sized Integer s -> Bool
+eqInteger = liftBuiltin (==)
+
+-- addIntegerPipe :: BuiltinPipe
+-- addIntegerPipe =
+--     BuiltinPipeAllSize $ \(_ :: Proxy s) ->
+--         liftPipe
+--             @(Sized Integer s -> Sized Integer s -> EvaluationResult (Sized Integer s))
+--             (liftBuiltin (+))
 
 addIntegerPipe :: BuiltinPipe
 addIntegerPipe =
     BuiltinPipeAllSize $ \(_ :: Proxy s) ->
-    BuiltinPipeArg $ \x ->
-    BuiltinPipeArg $ \y ->
-    BuiltinPipeRes $ addInteger @s x y
+        liftPipe (addInteger @s)
+--     BuiltinPipeArg $ \x ->
+--     BuiltinPipeArg $ \y ->
+--     BuiltinPipeRes $ addInteger @s x y
+
+-- addIntegerPipe :: BuiltinPipe
+-- addIntegerPipe =
+--     BuiltinPipeAllSize $ \(_ :: Proxy s) ->
+--     BuiltinPipeArg $ \x ->
+--     BuiltinPipeArg $ \y ->
+--     BuiltinPipeRes $ addInteger @s x y
+
+-- eqIntegerPipe :: BuiltinPipe
+-- eqIntegerPipe =
+--     BuiltinPipeAllSize $ \(_ :: Proxy s) ->
+--     BuiltinPipeArg $ \x ->
+--     BuiltinPipeArg $ \y ->
+--     BuiltinPipeRes $ eqInteger @s x y
 
 -- -- | A 'BuiltinName' with an associated 'TypeScheme'.
 -- data TypedBuiltinName a r = TypedBuiltinName BuiltinName (forall size. TypeScheme size a r)
@@ -553,3 +449,52 @@ addIntegerPipe =
 --     TODO: do we want this entire thing to be 'PrettyBy' rather than 'Pretty'?
 --     This is just used in errors, so we probably do not care much.
 --     pretty dyn@TypedBuiltinDyn        = prettyPlcDef $ toTypeAst dyn
+
+
+
+
+
+I'be been changing the way dynamic builtin types work for a couple of weeks and today I realized there is a problem which I don't know yet how to handle, so I thought I should write this down in hope someone will suggest something (or at least in order to help myself better understand the problem).
+
+I don't think we have ever discussed the particular topic of typed constant application, so I'll start from the beggining.
+
+We can have Plutus Core terms like `addInteger {8} 8!2 8!3` and we need to evaluate them somehow. The simplest approach is to collect all the arguments that `addInteger` requires (we do not have saturated builtin names in the implementation yet), ignore `{8}`, because we do not care about types during evaluation, extract the `2` and `3` integers, add them up and wrap the result into a Plutus Core constant: `8!5`.
+
+However we have many builtin names and manually extracting and wrapping values is tedious and error-prone. What we really want is a "framework" that
+
+1) extracts and wraps values automatically based on their types
+2) also checks sizes along the way
+
+So I wrote such a framework quite a while ago. Its initial design is documented here: https://github.com/input-output-hk/plutus/blob/master/language-plutus-core/docs/Constant%20application.md
+
+The generic pattern is that constant applications look like that:
+
+    toPlc (toHaskell plcBuiltin (toHaskell plcArg1) ... (toHaskell plcArgN))
+
+i.e. we convert the head of the application and all the arguments to their corresponding Haskell values, compute the result and convert it back to Plutus Core.
+
+The framework has been evolving since then and now it looks a bit different (for example, `Bool` is no longer hardcoded and constant applications can return values of fancy types like `Either` or `(,)` which are then automatically converted to Plutus Core values of the corresponding types), but the core ideas remain the same.
+
+However the problem with the framework is that it does not expose sizes to the Haskell side. I.e. the interpretation of PLC's
+
+    addInteger : all s. integer s -> integer s -> integer s
+
+is Haskell's
+
+    (+) :: Integer -> Integer -> Integer
+
+This does not mean that we do not perform size checks (we do perform them), just that we can't compute using sizes on the Haskell side. This is elaborated here: https://github.com/input-output-hk/plutus/blob/b5f476e45d40a4565990ed451d451c4876fb308b/language-plutus-core/src/Language/PlutusCore/Constant/Typed.hs#L64
+
+The current design works fine, performs all the runtime checks (even that arguments to `addInteger` are indeed of the same size), but it does not allow to export sizes to the user. Plutus Tx hardcods all integer sizes to 8 and users just do not see them.
+
+Recently we agreed that sizes should be exposed to the user. This means that the interpretation of PLC's
+
+    addInteger : all s. integer s -> integer s -> integer s
+
+should most likely be Haskell's
+
+    newtype Sized a (s :: k) = Sized a
+
+    addInteger :: forall s. KnownNat s => Sized Integer s -> Sized Integer s -> Sized Integer s
+
+Here sizes are lifted to the type level and at the term level we still operate with vanilla integers. (We also need to handle the case where a resulting integer does not fit into the specified size, but we already have all necessary infrastructure for that, so it's easy and I won't touch this question)
