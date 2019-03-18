@@ -234,6 +234,167 @@ newtype ReflectT m a = ReflectT
         , MonadError Text
         )
 
+-- []   , [(a, {g, f})]
+-- []   , [(b, {d, e}) , (a, {g, f})]
+-- [{c}], [(b, {d, e}) , (a, {g, f})]
+
+-- {c} :: Tree Int
+-- b : int
+-- {d, e, f} : tree int
+
+-- {e} :: Tree Int
+-- d : int
+-- {f} : tree int
+
+--     a
+--    / \
+--   b   g
+--  / \
+-- c   d
+--    / \
+--   e   f
+
+-- instance Functor Tree where
+--   fmap f = go [] where
+--       go []               (Leaf y)     = Leaf (f y)
+--       go ((x, r) : stack) (Leaf y)     = Fork (f x) (Leaf (f y)) (go stack r)
+--       go stack            (Fork x l r) = go ((x, r) : stack) l
+
+--   b
+--  / \
+-- c   d
+--    / \
+--   e   f
+
+-- b: go id {b} c
+-- c: go (Fork b (Leaf c)) {} d
+-- d: go (Fork b (Leaf c)) {f} e
+-- e: go (Fork b (Leaf c) . Fork d (Leaf e)) {} f
+
+--     a
+--    / \
+--   b   g
+--  / \
+-- c   d
+
+-- a: go id {g} b
+-- b: go id {d, g} c
+-- c: go (Fork b (Leaf c)) {g} d
+-- d: go (Fork a (Fork b (Leaf c)) (Leaf d)) g
+
+--   b
+--  / \
+-- c   d
+--    / \
+--   e   f
+--  / \
+-- g   h
+
+-- b: go id {b} c
+-- c: go (Fork b (Leaf c)) {} d
+-- d: go (Fork b (Leaf c)) {f} e
+-- e: go (Fork b (Leaf c))) {h, f} g
+-- g: go (Fork b (Leaf c) . Fork e (Leaf g)) {f} h -- WRONG
+
+-- go [] b
+-- go [Left (b, d)] c
+-- go [Right (b, Leaf c)] d
+-- go [Left (d, f), Right (b, Leaf c)] e
+-- go [Left (e, h), Left (d, f), Right (b, Leaf c)] g
+-- go [Right (e, Leaf g), Left (d, f), Right (b, Leaf c)] h
+
+-- go [Right (d, Fork e (Leaf g) (Leaf h)), Right (b, Leaf c)] f
+-- Fork b (Leaf c) (Fork d (Fork e (Leaf g) (Leaf h)) (Leaf f))
+
+--   b
+--  / \
+-- c   d
+--    / \
+--   e   f
+--      / \
+--     g   h
+
+-- go [] b
+-- go [Left (b, d)] c
+-- go [Right (b, Leaf c)] d
+-- go [Left (d, f), Right (b, Leaf c)] e
+-- go [Right (d, Leaf e), Right (b, Leaf c)] f
+-- go [Left (f, h), Right (d, Leaf e), Right (b, Leaf c)] g
+-- go [Right (f, Leaf g), Right (d, Leaf e), Right (b, Leaf c)] h
+-- Fork b (Leaf c) (Fork d (Leaf e) (Fork f (Leaf g) (Leaf h)))
+
+
+data Tree a
+    = Leaf a
+    | Fork a (Tree a) (Tree a)
+    deriving (Show)
+
+instance Functor Tree where
+  fmap f = go [] where
+      go stack (Leaf x)     = roll stack (Leaf (f x))
+      go stack (Fork x l r) = go (Right (x, r) : stack) l
+
+      roll []                     t = t
+      roll (Right (x, r) : stack) t = go (Left (t, x) : stack) r
+      roll (Left  (l, x) : stack) t = roll stack (Fork (f x) l t)
+
+-- data Dir = L | R
+
+-- instance Functor Tree where
+--   fmap f = go L id [] where
+--       go _ k []               (Leaf y)     = k (Leaf $ f y)
+--       go L k ((x, r) : stack) (Leaf y)     = go R (k . Fork (f x) (Leaf $ f y)) stack r
+--       go R k ((x, r) : stack) (Leaf y)     = go R (Fork (f x) (k . Leaf $ f y)) stack r
+--       go _ k stack            (Fork x l r) = go L k ((x, r) : stack) l
+
+-- instance Functor Tree where
+--   fmap f t = go [t] where
+--       go []               (Leaf y)      = k (Leaf $ f y)
+--       go (Left (x, r) : stack) (Leaf y) = go (Right (Fork (f x) . Leaf $ f y) : stack) r
+--       go (Right k     : stack) (Leaf y)      = go R (Fork (f x) (k . Leaf $ f y)) stack r
+--       go stack            (Fork x l r)  = go (Left (x, r) : stack) l
+
+-- instance Functor Tree where
+--   fmap f = go id [] where
+--       go k []               (Leaf y)     = k (Leaf (f y))
+--       go k ((x, r) : stack) (Leaf y)     = go (k . Fork (f x) (Leaf (f y))) stack r
+--       go k stack            (Fork x l r) = go k ((x, r) : stack) l
+
+
+--         ------ a ------
+--        /               \
+--     - b -             - i -
+--    /     \           /     \
+--   c       f         j       m
+--  / \     / \       / \     / \
+-- d   e   g   h     k   l   n   o
+test0 =
+    Fork 'a'
+        ( Fork 'b'
+            ( Fork 'c'
+                (Leaf 'd')
+                (Leaf 'e')
+            )
+            ( Fork 'f'
+                (Leaf 'g')
+                (Leaf 'h')
+            )
+        )
+        ( Fork 'i'
+            ( Fork 'j'
+                (Leaf 'k')
+                (Leaf 'l')
+            )
+            ( Fork 'm'
+                (Leaf 'n')
+                (Leaf 'o')
+            )
+        )
+
+test1 = fmap succ $ Fork 'a' (Fork 'b' (Leaf 'c') (Fork 'd' (Leaf 'e') (Leaf 'f'))) (Fork 'g' (Leaf 'h') (Leaf 'i'))
+
+test2 = fmap succ $ Fork 'a' (Fork 'b' (Leaf 'c') (Leaf 'd')) (Fork 'e' (Leaf 'f') (Fork 'g' (Leaf 'h') (Leaf 'i')))
+
 -- GHC does not want to derive this for some reason.
 instance MonadTrans ReflectT where
     lift = ReflectT . lift . lift
