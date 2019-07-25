@@ -26,8 +26,8 @@ module Language.PlutusCore.Constant.Name
     , typedGtByteString
     ) where
 
-import           Language.PlutusCore.Constant.Dynamic.Instances ()
 import           Language.PlutusCore.Constant.Typed
+import           Language.PlutusCore.Constant.Universe
 import           Language.PlutusCore.Evaluation.Result
 import           Language.PlutusCore.Lexer.Type
 
@@ -36,7 +36,7 @@ import           Data.Proxy
 
 -- | Apply a continuation to the typed version of a 'BuiltinName'.
 withTypedBuiltinName
-    :: Evaluable uni => BuiltinName -> (forall a r. TypedBuiltinName uni a r -> c) -> c
+    :: uni `Includes` Integer => BuiltinName -> (forall a r. TypedBuiltinName uni a r -> c) -> c
 withTypedBuiltinName AddInteger           k = k typedAddInteger
 withTypedBuiltinName SubtractInteger      k = k typedSubtractInteger
 withTypedBuiltinName MultiplyInteger      k = k typedMultiplyInteger
@@ -60,124 +60,124 @@ withTypedBuiltinName LtByteString         k = k typedLtByteString
 withTypedBuiltinName GtByteString         k = k typedGtByteString
 
 oneArg
-    :: (KnownType a uni, KnownType b uni)
+    :: (uni `Includes` a, uni `Includes` b)
     => TypeScheme uni (a -> b) b
 oneArg =
     Proxy `TypeSchemeArrow` TypeSchemeResult Proxy
 
 twoArgs
-    :: (KnownType a uni, KnownType b uni, KnownType c uni)
+    :: (uni `Includes` a, uni `Includes` b, uni `Includes` c)
     => TypeScheme uni (a -> b -> c) c
 twoArgs =
     Proxy `TypeSchemeArrow` Proxy `TypeSchemeArrow` TypeSchemeResult Proxy
 
 threeArgs
-    :: (KnownType a uni, KnownType b uni, KnownType c uni, KnownType d uni)
+    :: (uni `Includes` a, uni `Includes` b, uni `Includes` c, uni `Includes` d)
     => TypeScheme uni (a -> b -> c -> d) d
 threeArgs =
     Proxy `TypeSchemeArrow` Proxy `TypeSchemeArrow` Proxy `TypeSchemeArrow` TypeSchemeResult Proxy
 
 -- | Typed 'AddInteger'.
 typedAddInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Integer) Integer
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Integer) Integer
 typedAddInteger = TypedBuiltinName AddInteger twoArgs
 
 -- | Typed 'SubtractInteger'.
 typedSubtractInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Integer) Integer
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Integer) Integer
 typedSubtractInteger = TypedBuiltinName SubtractInteger twoArgs
 
 -- | Typed 'MultiplyInteger'.
 typedMultiplyInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Integer) Integer
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Integer) Integer
 typedMultiplyInteger = TypedBuiltinName MultiplyInteger twoArgs
 
 -- | Typed 'DivideInteger'.
 typedDivideInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
 typedDivideInteger = TypedBuiltinName DivideInteger twoArgs
 
 -- | Typed 'QuotientInteger'
 typedQuotientInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
 typedQuotientInteger = TypedBuiltinName QuotientInteger twoArgs
 
 -- | Typed 'RemainderInteger'.
 typedRemainderInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
 typedRemainderInteger = TypedBuiltinName RemainderInteger twoArgs
 
 -- | Typed 'ModInteger'
 typedModInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> EvaluationResult Integer) (EvaluationResult Integer)
 typedModInteger = TypedBuiltinName ModInteger twoArgs
 
 -- | Typed 'LessThanInteger'.
 typedLessThanInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
 typedLessThanInteger = TypedBuiltinName LessThanInteger twoArgs
 
 -- | Typed 'LessThanEqInteger'.
 typedLessThanEqInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
 typedLessThanEqInteger = TypedBuiltinName LessThanEqInteger twoArgs
 
 -- | Typed 'GreaterThanInteger'.
 typedGreaterThanInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
 typedGreaterThanInteger = TypedBuiltinName GreaterThanInteger twoArgs
 
 -- | Typed 'GreaterThanEqInteger'.
 typedGreaterThanEqInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
 typedGreaterThanEqInteger = TypedBuiltinName GreaterThanEqInteger twoArgs
 
 -- | Typed 'EqInteger'.
 typedEqInteger
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> Integer -> Bool) Bool
 typedEqInteger = TypedBuiltinName EqInteger twoArgs
 
 -- | Typed 'Concatenate'.
 typedConcatenate
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> BSL.ByteString) BSL.ByteString
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> BSL.ByteString) BSL.ByteString
 typedConcatenate = TypedBuiltinName Concatenate twoArgs
 
 -- | Typed 'TakeByteString'.
 typedTakeByteString
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> BSL.ByteString -> BSL.ByteString) BSL.ByteString
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> BSL.ByteString -> BSL.ByteString) BSL.ByteString
 typedTakeByteString = TypedBuiltinName TakeByteString twoArgs
 
 -- | Typed 'DropByteString'.
 typedDropByteString
-    :: Evaluable uni => TypedBuiltinName uni (Integer -> BSL.ByteString -> BSL.ByteString) BSL.ByteString
+    :: uni `Includes` Integer => TypedBuiltinName uni (Integer -> BSL.ByteString -> BSL.ByteString) BSL.ByteString
 typedDropByteString = TypedBuiltinName DropByteString twoArgs
 
 -- | Typed 'SHA2'.
 typedSHA2
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString) BSL.ByteString
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString) BSL.ByteString
 typedSHA2 = TypedBuiltinName SHA2 oneArg
 
 -- | Typed 'SHA3'.
 typedSHA3
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString) BSL.ByteString
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString) BSL.ByteString
 typedSHA3 = TypedBuiltinName SHA3 oneArg
 
 -- | Typed 'VerifySignature'.
 typedVerifySignature
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> BSL.ByteString -> EvaluationResult Bool) (EvaluationResult Bool)
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> BSL.ByteString -> EvaluationResult Bool) (EvaluationResult Bool)
 typedVerifySignature = TypedBuiltinName VerifySignature threeArgs
 
 -- | Typed 'EqByteString'.
 typedEqByteString
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> Bool) Bool
 typedEqByteString = TypedBuiltinName EqByteString twoArgs
 
 -- | Typed 'LtByteString'.
 typedLtByteString
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> Bool) Bool
 typedLtByteString = TypedBuiltinName LtByteString twoArgs
 
 -- | Typed 'GtByteString'.
 typedGtByteString
-    :: Evaluable uni => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> Bool) Bool
+    :: uni `Includes` Integer => TypedBuiltinName uni (BSL.ByteString -> BSL.ByteString -> Bool) Bool
 typedGtByteString = TypedBuiltinName GtByteString twoArgs

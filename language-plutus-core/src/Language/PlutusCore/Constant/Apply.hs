@@ -11,7 +11,8 @@
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Language.PlutusCore.Constant.Apply
-    ( ConstAppError (..)
+    ( Evaluable
+    , ConstAppError (..)
     , ConstAppResult (..)
     , ConstAppResultDef
     , EvaluateConstApp
@@ -40,6 +41,15 @@ import qualified Data.ByteString.Lazy.Hash             as Hash
 import           Data.GADT.Compare
 import           Data.Proxy
 import           Data.Text                             (Text)
+
+type Evaluable uni =
+    ( HasDefaultUni uni
+    , GEq uni
+    , GShow uni
+    , Closed uni
+    , uni `Everywhere` Pretty
+    , Typeable uni
+    )
 
 -- | The type of constant applications errors.
 data ConstAppError uni
