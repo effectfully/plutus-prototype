@@ -393,8 +393,11 @@ type instance SubtypeOf Err3 = '[Err1, Err2]
 type instance SubtypeOf Err4 = '[Err3]
 ```
 
+<<<<<<< HEAD
 <end_of_the_manuscript>
 
+=======
+>>>>>>> cf7aec58bd5452eff2e6ee82f8226c9c28bc0ae9
 I.e. describe
 -}
 
