@@ -217,13 +217,13 @@ instance (Connect a (Path a b) b, IList (Path a b)) => a <: b where
 --       Connect b qs c, IList qs
 
 
-withTrans :: forall a b c r. (a <: b, b <: c) => Proxy (a, b, c) -> (a <: c => r) -> r
-withTrans _ = go (slist :: SList (Path b c)) where
-    go :: SList ps
-       -> ((Connect a ps c, IList ps) => r)
-       -> r
-    go  SNil        r = _
-    go (SCons p ps) r = _
+-- withTrans :: forall a b c r. (a <: b, b <: c) => Proxy (a, b, c) -> (a <: c => r) -> r
+-- withTrans _ = go (slist :: SList (Path b c)) where
+--     go :: SList ps
+--        -> ((Connect a ps c, IList ps) => r)
+--        -> r
+--     go  SNil        r = _
+--     go (SCons p ps) r = _
 
 type instance SubtypeOf Err1 = '[]
 type instance SubtypeOf Err2 = '[]
