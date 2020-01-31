@@ -5,16 +5,17 @@
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Language.PlutusCore.Core.Instance.Pretty.Readable () where
 
 import           PlutusPrelude
 
+import           Language.PlutusCore.Constant.Universe
 import           Language.PlutusCore.Core.Instance.Pretty.Common ()
 import           Language.PlutusCore.Core.Type
 import           Language.PlutusCore.Pretty.Readable
-import           Language.PlutusCore.Pretty.Utils
 
 import           Data.Text.Prettyprint.Doc.Internal              (enclose)
 
@@ -32,19 +33,8 @@ instance PrettyBy (PrettyConfigReadable configName) (Kind a) where
         Type{}          -> unitaryDoc config "*"
         KindArrow _ k l -> arrowDoc   config k l
 
-instance PrettyBy (PrettyConfigReadable configName) (Constant a) where
-    prettyBy config = unitaryDoc config . \case
-        BuiltinInt _ int -> pretty int
-        BuiltinBS _ bs   -> prettyBytes bs
-        BuiltinStr _ str -> pretty str
-
-instance PrettyBy (PrettyConfigReadable configName) (Builtin a) where
-    prettyBy config = unitaryDoc config . \case
-        BuiltinName    _ name -> pretty name
-        DynBuiltinName _ name -> pretty name
-
-instance PrettyReadableBy configName (tyname a) =>
-        PrettyBy (PrettyConfigReadable configName) (Type tyname a) where
+instance (GShow uni, PrettyReadableBy configName (tyname a)) =>
+        PrettyBy (PrettyConfigReadable configName) (Type tyname uni a) where
     prettyBy config = \case
         TyApp _ fun arg         -> applicationDoc config fun arg
         TyVar _ name            -> unit $ prettyName name
@@ -52,7 +42,7 @@ instance PrettyReadableBy configName (tyname a) =>
         TyIFix _ pat arg        -> rayR juxtApp $ \juxt -> "ifix" <+> juxt pat <+> juxt arg
         TyForall _ name kind ty -> bind $ \bindBody ->
             "all" <+> prettyTypeBinding config name kind <> "." <+> bindBody ty
-        TyBuiltin _ builtin     -> unit $ pretty builtin
+        TyConstant _ con        -> unit $ pretty con
         TyLam _ name kind ty    -> bind $ \bindBody ->
             "\\" <> prettyTypeBinding config name kind <+> "->" <+> bindBody ty
       where
@@ -61,11 +51,14 @@ instance PrettyReadableBy configName (tyname a) =>
         rayR = rayDoc config Forward
         bind = binderDoc  config
 
-instance (PrettyReadableBy configName (tyname a), PrettyReadableBy configName (name a)) =>
-        PrettyBy (PrettyConfigReadable configName) (Term tyname name a) where
+instance
+        ( PrettyReadableBy configName (tyname a)
+        , PrettyReadableBy configName (name a)
+        , GShow uni, uni `Everywhere` Pretty
+        ) =>
+        PrettyBy (PrettyConfigReadable configName) (Term tyname name uni a) where
     prettyBy config = \case
-        Constant _ con         -> prettyBy config con
-        Builtin _ bi           -> prettyBy config bi
+        Constant _ con         -> pretty con
         Apply _ fun arg        -> applicationDoc config fun arg
         Var _ name             -> unit $ prettyName name
         TyAbs _ name kind body -> bind $ \bindBody ->
@@ -87,7 +80,7 @@ instance (PrettyReadableBy configName (tyname a), PrettyReadableBy configName (n
         inBot    = prettyInBotBy config
         inBraces = enclose "{" "}" . inBot
 
-instance PrettyReadableBy configName (Term tyname name a) =>
-        PrettyBy (PrettyConfigReadable configName) (Program tyname name a) where
+instance PrettyReadableBy configName (Term tyname name uni a) =>
+        PrettyBy (PrettyConfigReadable configName) (Program tyname name uni a) where
     prettyBy config (Program _ version term) =
         rayDoc config Forward juxtApp $ \juxt -> "program" <+> pretty version <+> juxt term
