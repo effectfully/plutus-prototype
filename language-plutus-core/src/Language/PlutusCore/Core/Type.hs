@@ -3,31 +3,37 @@
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DerivingVia           #-}
 {-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Language.PlutusCore.Core.Type
-    ( Gas (..)
-    , TyMeta (..)
-    , Meta (..)
-    , Kind (..)
-    , Type (..)
---     , Builtin (..)
-    , Term (..)
+    ( Gas(..)
+    , TyMeta(..)
+    , Meta(..)
+    , Kind(..)
+    , TypeBuiltin(..)
+    , Type(..)
+    , BuiltinName(..)
+    , DynamicBuiltinName(..)
+    , StagedBuiltinName(..)
+--     , Builtin(..)
+    , Constant(..)
+    , Term(..)
     , Value
-    , Version (..)
-    , Program (..)
-    , Normalized (..)
+    , Version(..)
+    , Program(..)
+    , Normalized(..)
     , HasUniques
     , defaultVersion
 --     , allBuiltinNames
     -- * Helper functions
-    , tyLoc
-    , termLoc
-    ) where
+    , toTerm
+    , termAnn
+    , typeAnn
+    )
+where
 
 import           PlutusPrelude
 
@@ -35,9 +41,12 @@ import           Language.PlutusCore.Name
 import           Language.PlutusCore.Constant.Universe
 
 import           Control.Lens
-import           GHC.Exts (Constraint)
-import           Instances.TH.Lift              ()
-import           Language.Haskell.TH.Syntax     (Lift (..))
+import qualified Data.ByteString.Lazy       as BSL
+import           Data.Hashable
+import           Data.Text                  (Text)
+import           GHC.Exts                   (Constraint)
+import           Instances.TH.Lift          ()
+import           Language.Haskell.TH.Syntax (Lift)
 
 import           Control.DeepSeq
 
@@ -74,7 +83,7 @@ newtype Gas = Gas
 data Kind ann
     = Type ann
     | KindArrow ann (Kind ann) (Kind ann)
-    deriving (Functor, Show, Generic, NFData, Lift)
+    deriving (Functor, Show, Generic, NFData, Lift, Hashable)
 
 -- | A 'Type' assigned to expressions.
 data Type tyname uni ann
@@ -98,22 +107,22 @@ data Term tyname name uni ann
     | Unwrap ann (Term tyname name uni ann)
     | IWrap ann (Type tyname uni ann) (Type tyname uni ann) (Term tyname name uni ann)
     | Error ann (Type tyname uni ann)
-    deriving (Functor, Generic)
+    deriving (Functor, Generic, Hashable)
 
 type Value = Term
 
 -- | Version of Plutus Core to be used for the program.
 data Version ann
     = Version ann Natural Natural Natural
-    deriving (Show, Functor, Generic, NFData, Lift)
+    deriving (Show, Functor, Generic, NFData, Lift, Hashable)
 
 -- | A 'Program' is simply a 'Term' coupled with a 'Version' of the core language.
 data Program tyname name uni ann = Program ann (Version ann) (Term tyname name uni ann)
-    deriving (Functor, Generic)
+    deriving (Functor, Generic, Hashable)
 
 newtype Normalized a = Normalized
     { unNormalized :: a
-    } deriving (Show, Eq, Functor, Foldable, Traversable, Generic)
+    } deriving (Show, Eq, Functor, Foldable, Traversable, Lift, Generic)
       deriving newtype NFData
       deriving Applicative via Identity
 deriving newtype instance PrettyBy config a => PrettyBy config (Normalized a)
@@ -132,10 +141,11 @@ deriving instance ParametersHave Lift tyname name uni ann => Lift (Program tynam
 -- | All kinds of uniques an entity contains.
 type family HasUniques a :: Constraint
 type instance HasUniques (Kind ann) = ()
-type instance HasUniques (Type tyname uni ann) = HasUnique (tyname ann) TypeUnique
-type instance HasUniques (Term tyname name uni ann) =
-    (HasUnique (tyname ann) TypeUnique, HasUnique (name ann) TermUnique)
-type instance HasUniques (Program tyname name uni ann) = HasUniques (Term tyname name uni ann)
+type instance HasUniques (Type tyname ann) = HasUnique (tyname ann) TypeUnique
+type instance HasUniques (Term tyname name ann)
+    = (HasUnique (tyname ann) TypeUnique, HasUnique (name ann) TermUnique)
+type instance HasUniques (Program tyname name ann) = HasUniques
+    (Term tyname name ann)
 
 -- | The default version of Plutus Core supported by this library.
 defaultVersion :: ann -> Version ann
@@ -147,22 +157,25 @@ defaultVersion ann = Version ann 1 0 0
 -- -- The way it's defined ensures that it's enough to add a new built-in to 'BuiltinName' and it'll be
 -- -- automatically handled by tests and other stuff that deals with all built-in names at once.
 
-tyLoc :: Type tyname uni ann -> ann
-tyLoc (TyVar ann _)        = ann
-tyLoc (TyFun ann _ _)      = ann
-tyLoc (TyIFix ann _ _)     = ann
-tyLoc (TyForall ann _ _ _) = ann
-tyLoc (TyBuiltin ann _)    = ann
-tyLoc (TyLam ann _ _ _)    = ann
-tyLoc (TyApp ann _ _)      = ann
+toTerm :: Program tyname name ann -> Term tyname name ann
+toTerm (Program _ _ term) = term
 
-termLoc :: Term tyname name uni ann -> ann
-termLoc (Var ann _)        = ann
-termLoc (TyAbs ann _ _ _)  = ann
-termLoc (Apply ann _ _)    = ann
-termLoc (Constant ann _)   = ann
-termLoc (TyInst ann _ _)   = ann
-termLoc (Unwrap ann _)     = ann
-termLoc (IWrap ann _ _ _)  = ann
-termLoc (Error ann _ )     = ann
-termLoc (LamAbs ann _ _ _) = ann
+typeAnn :: Type tyname ann -> ann
+typeAnn (TyVar ann _       ) = ann
+typeAnn (TyFun ann _ _     ) = ann
+typeAnn (TyIFix ann _ _    ) = ann
+typeAnn (TyForall ann _ _ _) = ann
+typeAnn (TyBuiltin ann _   ) = ann
+typeAnn (TyLam ann _ _ _   ) = ann
+typeAnn (TyApp ann _ _     ) = ann
+
+termAnn :: Term tyname name ann -> ann
+termAnn (Var ann _       ) = ann
+termAnn (TyAbs ann _ _ _ ) = ann
+termAnn (Apply ann _ _   ) = ann
+termAnn (Constant ann _  ) = ann
+termAnn (TyInst ann _ _  ) = ann
+termAnn (Unwrap ann _    ) = ann
+termAnn (IWrap ann _ _ _ ) = ann
+termAnn (Error ann _     ) = ann
+termAnn (LamAbs ann _ _ _) = ann
