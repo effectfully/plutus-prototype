@@ -14,7 +14,11 @@
 module Language.PlutusCore.Constant.Universe
     ( Some (..)
     , SomeOf (..)
-    , Builtin (..)
+    , Extend (..)
+    , Unextend
+    , SomeOriginal (..)
+--     , Builtin (..)
+
     , Includes (..)
     , Everywhere (..)
     , knownUniOf
@@ -34,9 +38,20 @@ import Data.GADT.Show
 data Some f = forall a. Some (f a)
 data SomeOf f = forall a. SomeOf (f a) a
 
-newtype Builtin a = Builtin
-    { unBuiltin :: a
-    }
+data Extend b uni a where
+    Extension :: Extend b uni b
+    Original  :: uni a -> Extend b uni a
+
+data SomeOriginal euni where
+    SomeOriginal :: euni ~ Extend b uni => uni a -> SomeOriginal euni -- (Extend b uni)
+
+type family Unextend (euni :: * -> *) :: * -> * where
+    Unextend (Extend b uni) = uni
+
+instance GEq uni => GEq (Extend b uni) where
+    geq Extension       Extension       = Just Refl
+    geq (Original uni1) (Original uni2) = geq uni1 uni2
+    geq _               _               = Nothing
 
 -- We probably want to use that together with `fastsum`.
 -- But also allow @Either@ and use type families for computing the index of a type,
@@ -58,6 +73,9 @@ bringApply proxy f (SomeOf uni x) = bring proxy uni $ f x
 parens :: String -> String
 parens str = "(" ++ str ++ ")"
 
+instance (euni ~ Extend b uni, GShow uni) => Show (SomeOriginal euni) where
+    show (SomeOriginal uni) = "SomeOriginal " ++ parens (gshow uni)
+
 instance GShow uni => Show (Some uni) where
    show (Some uni) = "Some " ++ parens (gshow uni)
 
@@ -68,6 +86,9 @@ instance (GShow uni, uni `Everywhere` Show) => Show (SomeOf uni) where
             , parens $ gshow uni
             , parens $ bring (Proxy @Show) uni (show x)
             ]
+
+instance (euni ~ Extend b uni, GShow uni) => Pretty (SomeOriginal euni) where
+    pretty (SomeOriginal uni) = pretty $ gshow uni
 
 instance GShow uni => Pretty (Some uni) where
     pretty (Some uni) = pretty $ gshow uni
@@ -85,11 +106,18 @@ instance (GEq uni, uni `Everywhere` Eq) => Eq (SomeOf uni) where
             Just Refl -> bring (Proxy @Eq) uni1 (x1 == x2)
 
 -- We could use 'NFData1' here, but we don't really need it for our particular case.
+instance NFData (SomeOriginal euni) where
+    rnf (SomeOriginal a) = a `seq` ()
+
+-- We could use 'NFData1' here, but we don't really need it for our particular case.
 instance NFData (Some f) where
     rnf (Some a) = a `seq` ()
 
 instance uni `Everywhere` NFData => NFData (SomeOf uni) where
     rnf = bringApply (Proxy @NFData) rnf
+
+instance Lift (SomeOriginal uni) where
+    lift = undefined -- TODO
 
 instance Lift (Some uni) where
     lift = undefined -- TODO

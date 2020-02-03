@@ -26,6 +26,9 @@ import           Data.GADT.Compare
 
 -- See Note [Annotations and equality].
 
+instance Eq (TyMeta uni) where
+instance Eq (Meta uni) where
+
 instance Eq (Kind ann) where
     Type _                == Type   _              = True
     KindArrow _ dom1 cod1 == KindArrow _ dom2 cod2 = dom1 == dom2 && cod1 == cod2
@@ -71,15 +74,15 @@ eqTypeM (TyApp _ fun1 arg1) (TyApp _ fun2 arg2) = do
 eqTypeM (TyFun _ dom1 cod1) (TyFun _ dom2 cod2) = do
     eqTypeM dom1 dom2
     eqTypeM cod1 cod2
-eqTypeM (TyConstant _ con1) (TyConstant _ con2) =
-    eqM con1 con2
+eqTypeM (TyBuiltin _ bi1) (TyBuiltin _ bi2) =
+    eqM bi1 bi2
 eqTypeM TyVar{}      _ = empty
 eqTypeM TyLam{}      _ = empty
 eqTypeM TyForall{}   _ = empty
 eqTypeM TyIFix{}     _ = empty
 eqTypeM TyApp{}      _ = empty
 eqTypeM TyFun{}      _ = empty
-eqTypeM TyConstant{} _ = empty
+eqTypeM TyBuiltin{}  _ = empty
 
 -- See Note [Modulo alpha].
 -- See Note [Scope tracking]

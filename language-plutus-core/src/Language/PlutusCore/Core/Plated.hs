@@ -124,7 +124,6 @@ termSubterms f = \case
     e@Error {} -> pure e
     v@Var {} -> pure v
     c@Constant {} -> pure c
-    b@Builtin {} -> pure b
 
 -- | Get all the transitive child 'Term's of the given 'Term'.
 termSubtermsDeep :: Fold (Term tyname name uni ann) (Term tyname name uni ann)

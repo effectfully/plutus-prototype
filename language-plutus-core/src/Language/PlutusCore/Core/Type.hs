@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DerivingVia           #-}
@@ -10,9 +11,11 @@
 
 module Language.PlutusCore.Core.Type
     ( Gas (..)
+    , TyMeta (..)
+    , Meta (..)
     , Kind (..)
     , Type (..)
-    , Builtin (..)
+--     , Builtin (..)
     , Term (..)
     , Value
     , Version (..)
@@ -34,12 +37,35 @@ import           Language.PlutusCore.Constant.Universe
 import           Control.Lens
 import           GHC.Exts (Constraint)
 import           Instances.TH.Lift              ()
-import           Language.Haskell.TH.Syntax     (Lift)
+import           Language.Haskell.TH.Syntax     (Lift (..))
+
+import           Control.DeepSeq
 
 {- Note [Annotations and equality]
 Equality of two things does not depend on their annotations.
 So don't use @deriving Eq@ for things with annotations.
 -}
+
+data TyMeta euni where
+    TyMetaBuiltin :: uni a -> TyMeta (Extend fun uni)
+
+data Meta euni where
+    MetaConstant :: uni a -> a -> Meta (Extend fun uni)
+    MetaFunction :: fun -> Meta (Extend fun uni)
+
+instance Show (TyMeta euni) where
+    show = undefined
+instance NFData (TyMeta euni) where
+    rnf = undefined
+instance Lift (TyMeta euni) where
+    lift = undefined
+
+instance Show (Meta euni) where
+    show = undefined
+instance NFData (Meta euni) where
+    rnf = undefined
+instance Lift (Meta euni) where
+    lift = undefined
 
 newtype Gas = Gas
     { unGas :: Natural
@@ -57,17 +83,17 @@ data Type tyname uni ann
     | TyIFix ann (Type tyname uni ann) (Type tyname uni ann)
       -- ^ Fix-point type, for constructing self-recursive types
     | TyForall ann (tyname ann) (Kind ann) (Type tyname uni ann)
-    | TyBuiltin ann (Some uni)
+    | TyBuiltin ann (TyMeta uni)
     | TyLam ann (tyname ann) (Kind ann) (Type tyname uni ann)
     | TyApp ann (Type tyname uni ann) (Type tyname uni ann)
-    deriving (Functor, Show, Generic, NFData, Lift)
+    deriving (Show, Functor, Generic, NFData, Lift)
 
 data Term tyname name uni ann
     = Var ann (name ann) -- ^ a named variable
     | TyAbs ann (tyname ann) (Kind ann) (Term tyname name uni ann)
     | LamAbs ann (name ann) (Type tyname uni ann) (Term tyname name uni ann)
     | Apply ann (Term tyname name uni ann) (Term tyname name uni ann)
-    | Constant ann (SomeOf uni) -- ^ a constant term
+    | Constant ann (Meta uni)
     | TyInst ann (Term tyname name uni ann) (Type tyname uni ann)
     | Unwrap ann (Term tyname name uni ann)
     | IWrap ann (Type tyname uni ann) (Type tyname uni ann) (Term tyname name uni ann)

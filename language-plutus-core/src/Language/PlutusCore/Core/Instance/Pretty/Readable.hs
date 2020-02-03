@@ -33,7 +33,7 @@ instance PrettyBy (PrettyConfigReadable configName) (Kind a) where
         Type{}          -> unitaryDoc config "*"
         KindArrow _ k l -> arrowDoc   config k l
 
-instance (GShow uni, PrettyReadableBy configName (tyname a)) =>
+instance (PrettyReadableBy configName (tyname a), GShow uni) =>
         PrettyBy (PrettyConfigReadable configName) (Type tyname uni a) where
     prettyBy config = \case
         TyApp _ fun arg         -> applicationDoc config fun arg
@@ -42,7 +42,7 @@ instance (GShow uni, PrettyReadableBy configName (tyname a)) =>
         TyIFix _ pat arg        -> rayR juxtApp $ \juxt -> "ifix" <+> juxt pat <+> juxt arg
         TyForall _ name kind ty -> bind $ \bindBody ->
             "all" <+> prettyTypeBinding config name kind <> "." <+> bindBody ty
-        TyConstant _ con        -> unit $ pretty con
+        TyBuiltin _ builtin     -> unit $ pretty builtin
         TyLam _ name kind ty    -> bind $ \bindBody ->
             "\\" <> prettyTypeBinding config name kind <+> "->" <+> bindBody ty
       where

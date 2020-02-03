@@ -58,7 +58,11 @@ data DefaultUni a where
     DefaultUniUnit        :: DefaultUni ()
     DefaultUniChar        :: DefaultUni Char
     DefaultUniString      :: DefaultUni String
-    DefaultUniBuiltinName :: DefaultUni (Builtin DefaultBuiltinName)
+--     DefaultUniBuiltinName :: DefaultUni (Builtin DefaultBuiltinName)
+
+-- euni ~ Extend name uni
+
+type EDefaultUni = Extend DefaultBuiltinName DefaultUni
 
 deriveGEq ''DefaultUni
 
@@ -69,8 +73,8 @@ instance DefaultUni `Includes` ()              where knownUni = DefaultUniUnit
 instance DefaultUni `Includes` Char            where knownUni = DefaultUniChar
 instance a ~ Char => DefaultUni `Includes` [a] where knownUni = DefaultUniString
 
-instance a ~ DefaultBuiltinName => DefaultUni `Includes` (Builtin a) where
-    knownUni = DefaultUniBuiltinName
+-- instance a ~ DefaultBuiltinName => DefaultUni `Includes` (Builtin a) where
+--     knownUni = DefaultUniBuiltinName
 
 instance GShow DefaultUni where
     gshowsPrec _ DefaultUniInteger    = undefined -- "DefaultUniInteger"
@@ -85,15 +89,15 @@ instance
         , constr ()
         , constr Char
         , constr String
-        , constr (Builtin DefaultBuiltinName)
+--         , constr (Builtin DefaultBuiltinName)
         ) => DefaultUni `Everywhere` constr where
-    bring _ DefaultUniInteger     = id
-    bring _ DefaultUniByteString  = id
-    bring _ DefaultUniString      = id
-    bring _ DefaultUniBool        = id
-    bring _ DefaultUniUnit        = id
-    bring _ DefaultUniChar        = id
-    bring _ DefaultUniBuiltinName = id
+    bring _ DefaultUniInteger    = id
+    bring _ DefaultUniByteString = id
+    bring _ DefaultUniString     = id
+    bring _ DefaultUniBool       = id
+    bring _ DefaultUniUnit       = id
+    bring _ DefaultUniChar       = id
+--     bring _ DefaultUniBuiltinName = id
 
 instance Pretty DefaultBuiltinName where
     pretty AddInteger           = "addInteger"
