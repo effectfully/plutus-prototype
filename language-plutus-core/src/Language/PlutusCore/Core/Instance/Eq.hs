@@ -23,11 +23,25 @@ import           Language.PlutusCore.Name
 import           Language.PlutusCore.Rename.Monad
 
 import           Data.GADT.Compare
+import           Data.Proxy
 
 -- See Note [Annotations and equality].
 
-instance Eq (TyMeta uni) where
-instance Eq (Meta uni) where
+instance GEq uni => Eq (TyMeta uni) where
+    TyMetaBuiltin bi1 == TyMetaBuiltin bi2 = undefined -- Some bi1 == Some bi2
+
+funExtOf :: h (Extend fun uni) -> Proxy fun
+funExtOf _ = Proxy
+
+originalSkip :: Proxy b -> uni a -> Extend b uni a
+originalSkip _ = Original
+
+instance (GEq euni, euni `Everywhere` Eq) => Eq (Meta euni) where
+    meta@(MetaConstant uni1 con1) == MetaConstant uni2 con2 =
+        SomeOf (Original uni1 :: euni) con1 == SomeOf (Original uni2) con2
+    MetaFunction fun1 == MetaFunction fun2 = fun1 == fun2
+    MetaConstant{} == _ = False
+    MetaFunction{} == _ = False
 
 instance Eq (Kind ann) where
     Type _                == Type   _              = True

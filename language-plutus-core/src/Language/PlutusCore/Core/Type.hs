@@ -13,13 +13,7 @@ module Language.PlutusCore.Core.Type
     , TyMeta(..)
     , Meta(..)
     , Kind(..)
-    , TypeBuiltin(..)
     , Type(..)
-    , BuiltinName(..)
-    , DynamicBuiltinName(..)
-    , StagedBuiltinName(..)
---     , Builtin(..)
-    , Constant(..)
     , Term(..)
     , Value
     , Version(..)
@@ -46,7 +40,7 @@ import           Data.Hashable
 import           Data.Text                  (Text)
 import           GHC.Exts                   (Constraint)
 import           Instances.TH.Lift          ()
-import           Language.Haskell.TH.Syntax (Lift)
+import           Language.Haskell.TH.Syntax (Lift (..))
 
 import           Control.DeepSeq
 
@@ -68,6 +62,8 @@ instance NFData (TyMeta euni) where
     rnf = undefined
 instance Lift (TyMeta euni) where
     lift = undefined
+instance Hashable (TyMeta euni) where
+    hashWithSalt = undefined
 
 instance Show (Meta euni) where
     show = undefined
@@ -75,6 +71,8 @@ instance NFData (Meta euni) where
     rnf = undefined
 instance Lift (Meta euni) where
     lift = undefined
+instance Hashable (Meta euni) where
+    hashWithSalt = undefined
 
 newtype Gas = Gas
     { unGas :: Natural
@@ -95,7 +93,7 @@ data Type tyname uni ann
     | TyBuiltin ann (TyMeta uni)
     | TyLam ann (tyname ann) (Kind ann) (Type tyname uni ann)
     | TyApp ann (Type tyname uni ann) (Type tyname uni ann)
-    deriving (Show, Functor, Generic, NFData, Lift)
+    deriving (Show, Functor, Generic, NFData, Lift, Hashable)
 
 data Term tyname name uni ann
     = Var ann (name ann) -- ^ a named variable
@@ -107,7 +105,7 @@ data Term tyname name uni ann
     | Unwrap ann (Term tyname name uni ann)
     | IWrap ann (Type tyname uni ann) (Type tyname uni ann) (Term tyname name uni ann)
     | Error ann (Type tyname uni ann)
-    deriving (Functor, Generic, Hashable)
+    deriving (Functor, Generic)
 
 type Value = Term
 
@@ -118,7 +116,7 @@ data Version ann
 
 -- | A 'Program' is simply a 'Term' coupled with a 'Version' of the core language.
 data Program tyname name uni ann = Program ann (Version ann) (Term tyname name uni ann)
-    deriving (Functor, Generic, Hashable)
+    deriving (Functor, Generic)
 
 newtype Normalized a = Normalized
     { unNormalized :: a
@@ -133,19 +131,21 @@ type ParametersHave (constr :: * -> Constraint) tyname name uni ann =
 deriving instance (GShow uni, ParametersHave Show tyname name uni ann) => Show (Term tyname name uni ann)
 deriving instance ParametersHave NFData tyname name uni ann => NFData (Term tyname name uni ann)
 deriving instance ParametersHave Lift tyname name uni ann => Lift (Term tyname name uni ann)
+deriving instance ParametersHave Hashable tyname name uni ann => Hashable (Term tyname name uni ann)
 
 deriving instance (GShow uni, ParametersHave Show tyname name uni ann) => Show (Program tyname name uni ann)
 deriving instance ParametersHave NFData tyname name uni ann => NFData (Program tyname name uni ann)
 deriving instance ParametersHave Lift tyname name uni ann => Lift (Program tyname name uni ann)
+deriving instance ParametersHave Hashable tyname name uni ann => Hashable (Program tyname name uni ann)
 
 -- | All kinds of uniques an entity contains.
 type family HasUniques a :: Constraint
 type instance HasUniques (Kind ann) = ()
-type instance HasUniques (Type tyname ann) = HasUnique (tyname ann) TypeUnique
-type instance HasUniques (Term tyname name ann)
+type instance HasUniques (Type tyname uni ann) = HasUnique (tyname ann) TypeUnique
+type instance HasUniques (Term tyname name uni ann)
     = (HasUnique (tyname ann) TypeUnique, HasUnique (name ann) TermUnique)
-type instance HasUniques (Program tyname name ann) = HasUniques
-    (Term tyname name ann)
+type instance HasUniques (Program tyname name uni ann) = HasUniques
+    (Term tyname name uni ann)
 
 -- | The default version of Plutus Core supported by this library.
 defaultVersion :: ann -> Version ann
@@ -157,10 +157,10 @@ defaultVersion ann = Version ann 1 0 0
 -- -- The way it's defined ensures that it's enough to add a new built-in to 'BuiltinName' and it'll be
 -- -- automatically handled by tests and other stuff that deals with all built-in names at once.
 
-toTerm :: Program tyname name ann -> Term tyname name ann
+toTerm :: Program tyname name uni ann -> Term tyname name uni ann
 toTerm (Program _ _ term) = term
 
-typeAnn :: Type tyname ann -> ann
+typeAnn :: Type tyname uni ann -> ann
 typeAnn (TyVar ann _       ) = ann
 typeAnn (TyFun ann _ _     ) = ann
 typeAnn (TyIFix ann _ _    ) = ann
@@ -169,7 +169,7 @@ typeAnn (TyBuiltin ann _   ) = ann
 typeAnn (TyLam ann _ _ _   ) = ann
 typeAnn (TyApp ann _ _     ) = ann
 
-termAnn :: Term tyname name ann -> ann
+termAnn :: Term tyname name uni ann -> ann
 termAnn (Var ann _       ) = ann
 termAnn (TyAbs ann _ _ _ ) = ann
 termAnn (Apply ann _ _   ) = ann

@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE ConstraintKinds           #-}
 {-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -15,8 +16,8 @@ module Language.PlutusCore.Constant.Universe
     ( Some (..)
     , SomeOf (..)
     , Extend (..)
-    , Unextend
-    , SomeOriginal (..)
+--     , Unextend
+--     , SomeOriginal (..)
 --     , Builtin (..)
 
     , Includes (..)
@@ -42,16 +43,18 @@ data Extend b uni a where
     Extension :: Extend b uni b
     Original  :: uni a -> Extend b uni a
 
-data SomeOriginal euni where
-    SomeOriginal :: euni ~ Extend b uni => uni a -> SomeOriginal euni -- (Extend b uni)
+-- data SomeOriginal euni where
+--     SomeOriginal :: euni ~ Extend b uni => uni a -> SomeOriginal euni -- (Extend b uni)
 
-type family Unextend (euni :: * -> *) :: * -> * where
-    Unextend (Extend b uni) = uni
+-- type family Unextend (euni :: * -> *) :: * -> * where
+--     Unextend (Extend b uni) = uni
 
 instance GEq uni => GEq (Extend b uni) where
     geq Extension       Extension       = Just Refl
     geq (Original uni1) (Original uni2) = geq uni1 uni2
     geq _               _               = Nothing
+
+-- instance GEq uni, Eq b, Eq `E
 
 -- We probably want to use that together with `fastsum`.
 -- But also allow @Either@ and use type families for computing the index of a type,
@@ -62,8 +65,15 @@ class uni `Includes` a where
 knownUniOf :: uni `Includes` a => proxy a -> uni a
 knownUniOf _ = knownUni
 
-class uni `Everywhere` (constr :: * -> Constraint) where
+type family ReduceEverywhere (uni :: * -> *) (constr :: * -> Constraint) :: Constraint
+type instance ReduceEverywhere (Extend b uni) constr = (constr b, uni `Everywhere` constr)
+
+class uni `ReduceEverywhere` constr => uni `Everywhere` (constr :: * -> Constraint) where
     bring :: proxy constr -> uni a -> (constr a => r) -> r
+
+instance (constr b, uni `Everywhere` constr) => Extend b uni `Everywhere` constr where
+    bring _     Extension      = id
+    bring proxy (Original uni) = bring proxy uni
 
 bringApply
     :: uni `Everywhere` constr
@@ -73,8 +83,8 @@ bringApply proxy f (SomeOf uni x) = bring proxy uni $ f x
 parens :: String -> String
 parens str = "(" ++ str ++ ")"
 
-instance (euni ~ Extend b uni, GShow uni) => Show (SomeOriginal euni) where
-    show (SomeOriginal uni) = "SomeOriginal " ++ parens (gshow uni)
+-- instance (euni ~ Extend b uni, GShow uni) => Show (SomeOriginal euni) where
+--     show (SomeOriginal uni) = "SomeOriginal " ++ parens (gshow uni)
 
 instance GShow uni => Show (Some uni) where
    show (Some uni) = "Some " ++ parens (gshow uni)
@@ -87,8 +97,8 @@ instance (GShow uni, uni `Everywhere` Show) => Show (SomeOf uni) where
             , parens $ bring (Proxy @Show) uni (show x)
             ]
 
-instance (euni ~ Extend b uni, GShow uni) => Pretty (SomeOriginal euni) where
-    pretty (SomeOriginal uni) = pretty $ gshow uni
+-- instance (euni ~ Extend b uni, GShow uni) => Pretty (SomeOriginal euni) where
+--     pretty (SomeOriginal uni) = pretty $ gshow uni
 
 instance GShow uni => Pretty (Some uni) where
     pretty (Some uni) = pretty $ gshow uni
@@ -105,9 +115,9 @@ instance (GEq uni, uni `Everywhere` Eq) => Eq (SomeOf uni) where
             Nothing   -> False
             Just Refl -> bring (Proxy @Eq) uni1 (x1 == x2)
 
--- We could use 'NFData1' here, but we don't really need it for our particular case.
-instance NFData (SomeOriginal euni) where
-    rnf (SomeOriginal a) = a `seq` ()
+-- -- We could use 'NFData1' here, but we don't really need it for our particular case.
+-- instance NFData (SomeOriginal euni) where
+--     rnf (SomeOriginal a) = a `seq` ()
 
 -- We could use 'NFData1' here, but we don't really need it for our particular case.
 instance NFData (Some f) where
@@ -116,11 +126,56 @@ instance NFData (Some f) where
 instance uni `Everywhere` NFData => NFData (SomeOf uni) where
     rnf = bringApply (Proxy @NFData) rnf
 
-instance Lift (SomeOriginal uni) where
-    lift = undefined -- TODO
+-- instance Lift (SomeOriginal uni) where
+--     lift = undefined -- TODO
 
 instance Lift (Some uni) where
     lift = undefined -- TODO
 
 instance uni `Everywhere` Lift => Lift (SomeOf uni) where
     lift = bringApply (Proxy @Lift) lift
+
+
+
+-- class C a where
+--     f :: a -> Int
+
+-- -- instance C Int where
+-- --     f = undefined
+
+-- instance C Int => C Bool where
+--     f = undefined
+
+-- data D a where
+--     D :: Int -> D Bool
+
+-- g :: C a => D a -> Int
+-- g (D i) = f i
+
+
+
+
+-- class C a where
+--     f :: a -> Int
+
+-- newtype W a = W a
+
+-- instance C a => C (W a) where
+--     f (W x) = f x
+
+-- bringC :: C (W a) => proxy a -> (C a => r) -> r
+-- bringC _ = id
+
+-- data D a where
+--     D :: Bool -> D (W Bool)
+
+-- g :: C Bool => D a -> Int
+-- g (D x) = f x
+
+-- g' :: C a => D a -> Int
+-- g' (D x) = bringC (Proxy @Bool) f x
+
+
+
+-- instance C Bool where
+--     f = fromEnum
