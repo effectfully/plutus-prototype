@@ -3,11 +3,14 @@
 {-# OPTIONS_GHC -fno-warn-orphans        #-}  -- The @Pretty ByteString@ instance.
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}  -- Appears in generated instances.
 
+{-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 module Language.PlutusCore.Universe.Default
     ( DefaultUni (..)
@@ -92,13 +95,7 @@ must be amended only in a backwards compatible manner.
 See Note [Stable encoding of PLC]
 -}
 
-instance Closed DefaultUni where
-    type DefaultUni `Everywhere` constr =
-        ( constr Integer
-        , constr BSL.ByteString
-        , constr String
-        )
-
+instance Enumerable DefaultUni where
     -- See Note [Stable encoding of tags].
     tagOf DefaultUniInteger    = 0
     tagOf DefaultUniByteString = 1
@@ -110,6 +107,10 @@ instance Closed DefaultUni where
     uniAt 2 = Just . Some $ TypeIn DefaultUniString
     uniAt _ = Nothing
 
+instance ( constr Integer
+         , constr BSL.ByteString
+         , constr String
+         ) => DefaultUni `Everywhere` constr where
     bring _ DefaultUniInteger    = id
     bring _ DefaultUniByteString = id
     bring _ DefaultUniString     = id

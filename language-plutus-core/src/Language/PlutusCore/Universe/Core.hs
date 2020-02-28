@@ -17,7 +17,8 @@ module Language.PlutusCore.Universe.Core
     , ValueOf (..)
     , someValue
     , Includes (..)
-    , Closed (..)
+    , Enumerable (..)
+    , Everywhere (..)
     , type (<:)
     , knownUniOf
     , GShow (..)
@@ -35,10 +36,8 @@ import           Data.GADT.Compare
 import           Data.GADT.Compare.TH
 import           Data.GADT.Show
 import           Data.Hashable
-import qualified Data.Kind                  as GHC (Type)
 import           Data.Proxy
 import           Data.Text.Prettyprint.Doc  (Pretty (..))
-import           GHC.Exts
 import           Language.Haskell.TH.Lift
 import           Language.Haskell.TH.Syntax
 import           Text.Show.Deriving
@@ -92,21 +91,17 @@ knownUniOf _ = knownUni
 someValue :: forall a uni. uni `Includes` a => a -> Some (ValueOf uni)
 someValue = Some . ValueOf knownUni
 
--- | A universe is 'Closed', if it's known how to constrain every type from the universe
--- (the universe doesn't have to be finite for that).
-class Closed uni where
-    -- | A constrant for \"@constr a@ holds for any @a@ from @uni@\".
-    type Everywhere uni (constr :: GHC.Type -> Constraint) :: Constraint
-
+class Enumerable uni where
     -- | Get the 'Int' tag of a type from @uni@. The opposite of 'uniAt'.
     tagOf :: uni a -> Int
 
     -- | Get the universe at a tag. The opposite of 'tagOf'.
     uniAt :: Int -> Maybe (Some (TypeIn uni))
 
+class uni `Everywhere` constr where
     -- | Bring a @constr a@ instance in scope, provided @a@ is a type from the universe and
     -- @constr@ holds for any type from the universe.
-    bring :: uni `Everywhere` constr => proxy constr -> uni a -> (constr a => r) -> r
+    bring :: proxy constr -> uni a -> (constr a => r) -> r
 
 -- | A constraint for \"@uni1@ is a subuniverse of @uni2@\".
 type uni1 <: uni2 = uni1 `Everywhere` Includes uni2
@@ -242,9 +237,9 @@ instance GShow uni => GShow (TypeIn uni) where gshowsPrec = showsPrec
 instance GShow uni => Show (TypeIn uni a) where
     showsPrec pr (TypeIn uni) = ($(makeShowsPrec ''TypeIn)) pr (TypeIn (AG uni))
 
-instance (GShow uni, Closed uni, uni `Everywhere` Show) => GShow (ValueOf uni) where
+instance (GShow uni, uni `Everywhere` Show) => GShow (ValueOf uni) where
     gshowsPrec = showsPrec
-instance (GShow uni, Closed uni, uni `Everywhere` Show) => Show (ValueOf uni a) where
+instance (GShow uni, uni `Everywhere` Show) => Show (ValueOf uni a) where
     showsPrec pr (ValueOf uni x) =
         bring (Proxy @Show) uni $ ($(makeShowsPrec ''ValueOf)) pr (ValueOf (AG uni) x)
 
@@ -253,13 +248,13 @@ instance (GShow uni, Closed uni, uni `Everywhere` Show) => Show (ValueOf uni a) 
 instance GShow uni => Pretty (TypeIn uni a) where
     pretty (TypeIn uni) = pretty $ gshow uni
 
-instance (Closed uni, uni `Everywhere` Pretty) => Pretty (ValueOf uni a) where
+instance (uni `Everywhere` Pretty) => Pretty (ValueOf uni a) where
     pretty (ValueOf uni x) = bring (Proxy @Pretty) uni $ pretty x
 
 instance GShow uni => Pretty (Some (TypeIn uni)) where
     pretty (Some s) = pretty s
 
-instance (Closed uni, uni `Everywhere` Pretty) => Pretty (Some (ValueOf uni)) where
+instance (uni `Everywhere` Pretty) => Pretty (Some (ValueOf uni)) where
     pretty (Some s) = pretty s
 
 -------------------- 'Eq' / 'GEq'
@@ -269,7 +264,7 @@ instance GEq f => Eq (Some f) where
 
 deriving newtype instance GEq uni => GEq (TypeIn uni)
 
-instance (GEq uni, Closed uni, uni `Everywhere` Eq) => GEq (ValueOf uni) where
+instance (GEq uni, uni `Everywhere` Eq) => GEq (ValueOf uni) where
     ValueOf uni1 x1 `geq` ValueOf uni2 x2 = do
         Refl <- uni1 `geq` uni2
         guard $ bring (Proxy @Eq) uni1 (x1 == x2)
@@ -278,7 +273,7 @@ instance (GEq uni, Closed uni, uni `Everywhere` Eq) => GEq (ValueOf uni) where
 instance GEq uni => Eq (TypeIn uni a) where
     a1 == a2 = a1 `defaultEq` a2
 
-instance (GEq uni, Closed uni, uni `Everywhere` Eq) => Eq (ValueOf uni a) where
+instance (GEq uni, uni `Everywhere` Eq) => Eq (ValueOf uni a) where
     a1 == a2 = a1 `defaultEq` a2
 
 -------------------- 'NFData'
@@ -286,28 +281,28 @@ instance (GEq uni, Closed uni, uni `Everywhere` Eq) => Eq (ValueOf uni a) where
 instance NFData (TypeIn uni a) where
     rnf (TypeIn uni) = uni `seq` ()
 
-instance (Closed uni, uni `Everywhere` NFData) => NFData (ValueOf uni a) where
+instance (uni `Everywhere` NFData) => NFData (ValueOf uni a) where
     rnf (ValueOf uni x) = bring (Proxy @NFData) uni $ rnf x
 
 instance NFData (Some (TypeIn uni)) where
     rnf (Some s) = rnf s
 
-instance (Closed uni, uni `Everywhere` NFData) => NFData (Some (ValueOf uni)) where
+instance (uni `Everywhere` NFData) => NFData (Some (ValueOf uni)) where
     rnf (Some s) = rnf s
 
 -------------------- 'Hashable'
 
-instance Closed uni => Hashable (TypeIn uni a) where
+instance Enumerable uni => Hashable (TypeIn uni a) where
     hashWithSalt salt (TypeIn uni) = hashWithSalt salt $ tagOf uni
 
-instance (Closed uni, uni `Everywhere` Hashable) => Hashable (ValueOf uni a) where
+instance (Enumerable uni, uni `Everywhere` Hashable) => Hashable (ValueOf uni a) where
     hashWithSalt salt (ValueOf uni x) =
         bring (Proxy @Hashable) uni $ hashWithSalt salt (Some (TypeIn uni), x)
 
-instance Closed uni => Hashable (Some (TypeIn uni)) where
+instance Enumerable uni => Hashable (Some (TypeIn uni)) where
     hashWithSalt salt (Some s) = hashWithSalt salt s
 
-instance (Closed uni, uni `Everywhere` Hashable) => Hashable (Some (ValueOf uni)) where
+instance (Enumerable uni, uni `Everywhere` Hashable) => Hashable (Some (ValueOf uni)) where
     hashWithSalt salt (Some s) = hashWithSalt salt s
 
 -------------------- 'Lift'
@@ -345,6 +340,6 @@ instance GLift uni => GLift (TypeIn uni)
 instance GLift uni => Lift (TypeIn uni a) where
     lift (TypeIn uni) = ($(makeLift ''TypeIn)) (TypeIn (AG uni))
 
-instance (GLift uni, Closed uni, uni `Everywhere` Lift) => GLift (ValueOf uni)
-instance (GLift uni, Closed uni, uni `Everywhere` Lift) => Lift (ValueOf uni a) where
+instance (GLift uni, uni `Everywhere` Lift) => GLift (ValueOf uni)
+instance (GLift uni, uni `Everywhere` Lift) => Lift (ValueOf uni a) where
     lift (ValueOf uni x) = bring (Proxy @Lift) uni $ ($(makeLift ''ValueOf)) (ValueOf (AG uni) x)
