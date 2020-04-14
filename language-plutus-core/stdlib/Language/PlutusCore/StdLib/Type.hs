@@ -485,6 +485,245 @@ Therefore, the costs of encoding n-ary pattern functors as 1-ary pattern functor
 are rather high while the benefits are minor, and thus we go with the semantic packing approach.
 -}
 
+
+
+{-
+    prodTreeReprN (tag :: (* -> * -> *) -> (* -> *) -> *) =
+      \(prod :: * -> * -> *) (tree :: * -> *) ->
+        all (r :: *).                                        -- Binding the result variable.
+          tag                                                -- Choosing between the two data types.
+            (\(a :: *) (b :: *) ->                           -- The two types that `Prod` binds.
+                    (tree (∀ q -> (a -> b -> q) -> q) -> r)  -- Case over the `Prod` constructor.
+                 -> r)
+            (\(a :: *) ->                                    -- The type that `Tree` binds.
+                    (a -> r)                                 -- Case over the `Leaf` constructor.
+                 -> (prod a a -> r)                      -- Case over the `Fork` constructor.
+                 -> r)
+
+
+
+
+
+
+
+
+
+  data Prod a b = Tree (a, b)
+  data Tree a = Leaf a | Fork (Prod a a)
+
+
+
+    prodTreeReprN (tag :: (* -> * -> *) -> (* -> *) -> *) =
+      \(prod :: * -> * -> *) (tree :: * -> *) ->       -- Variables for the data types being defined.
+        tag                                                -- Choosing between the two data types.
+          (\(a :: *) (b :: *) ->                           -- The two types that `Prod` binds.
+             all (r :: *).                                 -- Binding the result variable.
+                  (tree (∀ q -> (a -> b -> q) -> q) -> r)  -- Case over the `Prod` constructor.
+               -> r)
+          (\(a :: *) ->                                    -- The type that `Tree` binds.
+             all (r :: *).                                 -- Binding the result variable.
+                  (a -> r)                                 -- Case over the `Leaf` constructor.
+               -> (prod a a -> r)                      -- Case over the `Fork` constructor.
+               -> r)
+
+    prodTreeRepr1 =
+      \(rec :: ((* -> * -> *) -> (* -> *) -> *) -> *)
+        (tag :: (* -> * -> *) -> (* -> *) -> *) ->
+          prodTreeReprN tag
+            (\(a :: *) (b :: *) -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b))
+            (\(a :: *)          -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a))
+
+    prodTree = \(tag :: (* -> * -> *) -> (* -> *) -> *) -> ifix prodTreeRepr1 tag
+
+
+
+
+
+
+
+'instantiate' by recursion on the kind of a type
+
+    instantiations rec:
+      1. (\(a :: *) (b :: *) -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b))
+      2. (\(a :: *)          -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a))
+
+    instantiations prodTree:
+      1. (\(a :: *) (b :: *) -> prodTree (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b))
+      2. (\(a :: *)          -> prodTree (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a))
+
+
+
+
+
+    prodTree =
+      \(tag0 :: (* -> * -> *) -> (* -> *) -> *) ->
+        ifix
+          (\(rec :: ((* -> * -> *) -> (* -> *) -> *) -> *) (tag :: (* -> * -> *) -> (* -> *) -> *) ->
+            (\(prod :: * -> * -> *) (tree :: * -> *) ->
+              tag                                                -- Choosing between the two data types.
+                (\(a :: *) (b :: *) ->                           -- The two types that `Prod` binds.
+                   all (r :: *).                                 -- Binding the result variable.
+                        (tree (∀ q -> (a -> b -> q) -> q) -> r)  -- Case over the `Prod` constructor.
+                     -> r)
+                (\(a :: *) ->                                    -- The type that `Tree` binds.
+                   all (r :: *).                                 -- Binding the result variable.
+                        (a -> r)                                 -- Case over the `Leaf` constructor.
+                     -> (prod a a -> r)                      -- Case over the `Fork` constructor.
+                     -> r))
+            (\(a :: *) (b :: *) -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b))
+            (\(a :: *)          -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a)))
+          tag0
+
+
+
+    /\(prodTreeF :: (((* -> * -> *) -> (* -> *) -> *) -> *) -> ((* -> * -> *) -> (* -> *) -> *) -> *) ->
+      (/\(prodTree :: ((* -> * -> *) -> (* -> *) -> *) -> *) ->
+        \(wrapProdTree : all (tag :: (* -> * -> *) -> (* -> *) -> *). prodTreeF prodTree tag -> prodTree tag) ->
+          (/\(prod :: * -> * -> *) (tree :: * -> *) ->
+            \(wrapProd : prodTreeF prodTree prodTag -> prodTree prodTag) ->
+              \(wrapTree : prodTreeF prodTree treeTag -> prodTree treeTag) -> ...)
+          {prodTree prodTag}
+          {prodTree treeTag}
+          (wrapProdTree {prodTag})
+          (wrapProdTree {treeTag}))
+      (\(tag :: (* -> * -> *) -> (* -> *) -> *) -> ifix prodTreeF tag)
+
+
+    ifixEta k = \(pat :: (k -> *) -> k -> *) (ind :: k) -> ifix pat ind
+
+    let prodTreeF :: (tagKind -> *) -> tagKind -> * = ...
+        wrapProdTree : all (tag :: tagKind). prodTreeF (ifixEta prodTreeF) tag -> ifixEta prodTreeF tag = ...
+        [ ( prodTag :: tagKind = ...
+          , prod :: * -> * -> * = prodTree prodTag
+          , prodBody : prodTreeF (ifixEta prodTreeF) prodTag = ...
+          , prodCons : prodTree prodTag = wrapProdTree {prodTag} prodBody
+          )
+        , ( treeTag :: tagKind = ...
+          , tree :: * -> * = prodTree treeTag
+          , treeBody : treeTreeF (ifixEta treeTreeF) treeTag = ...
+          , treeCons : prodTree treeTag = wrapProdTree {treeTag} treeBody
+          )
+        ]
+
+--  pat   wrap    tag   body
+-- (type, term, [(type, term)])
+
+data MutualTypes = MutualTypes
+    { _mutualTypesPat  :: (Name, Type)
+    , _mutualTypesWrap :: (Name, Term)
+    , _mutualTypesData :: [(Name, Type, Term -> Term)]
+    }
+
+--  body
+-- [term] -> full
+
+
+    let prodTreeF :: (tagKind -> *) -> tagKind -> * = ...
+        prodTree :: tagKind -> * = \(tag :: tagKind) -> ifix prodTreeF tag
+        wrapProdTree : all (tag :: tagKind). prodTreeF prodTree tag -> prodTree tag = ...
+        [ ( prodTag :: tagKind = ...
+          , prod :: * -> * -> * = prodTree prodTag
+          , wrapProd : prodTreeF prodTree prodTag -> prodTree prodTag = wrapProdTree {prodTag}
+          )
+        , ( treeTag :: tagKind = ...
+          , tree :: * -> * = prodTree treeTag
+          , wrapTree : prodTreeF prodTree treeTag -> prodTree treeTag = wrapProdTree {treeTag}
+          )
+        ]
+
+    /\prodTreeF
+        prodTree :: tagKind -> * = \(tag :: tagKind) -> ifix prodTreeF tag
+        wrapProdTree : all (tag :: tagKind). prodTreeF prodTree tag -> prodTree tag = ...
+
+
+    -- (/\prodTreeF ->
+    --     (/\prodTree -> \wrapProdTree ->
+    --         (/\prodTag
+    --     )
+    --     <prodTree>
+    --     <<wrapProdTree>>
+    -- )
+    -- <<prodTreeF>>
+
+
+
+
+
+    prod = \(a :: *) (b :: *) -> ifix
+        (\(rec :: ((* -> * -> *) -> (* -> *) -> *) -> *) (tag :: (* -> * -> *) -> (* -> *) -> *) ->
+          (\(prod :: * -> * -> *) (tree :: * -> *) ->
+            tag                                                -- Choosing between the two data types.
+              (\(a :: *) (b :: *) ->                           -- The two types that `Prod` binds.
+                 all (r :: *).                                 -- Binding the result variable.
+                      (tree (∀ q -> (a -> b -> q) -> q) -> r)  -- Case over the `Prod` constructor.
+                   -> r)
+              (\(a :: *) ->                                    -- The type that `Tree` binds.
+                 all (r :: *).                                 -- Binding the result variable.
+                      (a -> r)                                 -- Case over the `Leaf` constructor.
+                   -> (prod a a -> r)                      -- Case over the `Fork` constructor.
+                   -> r))
+          (\(a :: *) (b :: *) -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b))
+          (\(a :: *)          -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a)))
+        (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b)
+
+    tree = \(a :: *) -> ifix
+        (\(rec :: ((* -> * -> *) -> (* -> *) -> *) -> *) (tag :: (* -> * -> *) -> (* -> *) -> *) ->
+          (\(prod :: * -> * -> *) (tree :: * -> *) ->
+            tag                                                -- Choosing between the two data types.
+              (\(a :: *) (b :: *) ->                           -- The two types that `Prod` binds.
+                 all (r :: *).                                 -- Binding the result variable.
+                      (tree (∀ q -> (a -> b -> q) -> q) -> r)  -- Case over the `Prod` constructor.
+                   -> r)
+              (\(a :: *) ->                                    -- The type that `Tree` binds.
+                 all (r :: *).                                 -- Binding the result variable.
+                      (a -> r)                                 -- Case over the `Leaf` constructor.
+                   -> (prod a a -> r)                      -- Case over the `Fork` constructor.
+                   -> r))
+          (\(a :: *) (b :: *) -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> prod a b))
+          (\(a :: *)          -> rec (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a)))
+        (\(prod :: * -> * -> *) (tree :: * -> *) -> tree a)
+
+    interlist = \(a :: *) (b :: *) -> ifix
+        (\(rec :: ((* -> * -> *) -> *) -> *) (tag :: (* -> * -> *) -> *) ->
+          (\(interlist :: * -> * -> *) ->
+            tag
+              (\(a :: *) (b :: *) -> all (r :: *). r -> (a -> b -> interlist b a -> r) -> r))
+          (\(a :: *) (b :: *) -> rec (\(interlist :: * -> * -> *) -> interlist a b)))
+        (\(interlist :: * -> * -> *) -> interlist a b)
+
+
+
+
+
+
+
+-- > encodeDataN (PackData [data¹ , … , dataᵐ]) =
+-- >    λ tag δ¹ … δᵐ → tag (scott data¹) … (scott dataᵐ)
+
+-- > instantiations ψ
+-- >     = ∅
+-- >     ▷ (λ α¹₁ … α¹ₙ₁ → ψ λ β¹ … βᵐ → β¹ α¹₁ … α¹ₙ₁)
+-- >     ▷ …
+-- >     ▷ (λ αᵐ₁ … αᵐₙₘ → ψ λ β¹ … βᵐ → βᵐ αᵐ₁ … αᵐₙₘ)
+
+-- > φ : ((σ¹₁ ⇒ᵏ … ⇒ᵏ σ¹ₙ₁ ⇒ᵏ ⋆) ⇒ᵏ … ⇒ᵏ (σᵐ₁ ⇒ᵏ … ⇒ᵏ σᵐₙₘ ⇒ᵏ ⋆) ⇒ᵏ ⋆)
+-- >   ⇒ᵏ (σ¹₁ ⇒ᵏ … ⇒ᵏ σ¹ₙ₁ ⇒ᵏ ⋆) ⇒ᵏ … ⇒ᵏ (σᵐ₁ ⇒ᵏ … ⇒ᵏ σᵐₙₘ ⇒ᵏ ⋆) ⇒ᵏ ⋆
+-- > φ = λ tag δ¹ … δᵐ → <body>
+
+-- > packEncodedDataN _ φ =
+-- >     λ rec tag → φ tag
+-- >         (λ α¹₁ … α¹ₙ₁ → rec λ ψ¹ … ψᵐ → ψ¹ α¹₁ … α¹ₙ₁)
+-- >         …
+-- >         (λ αᵐ₁ … αᵐₙₘ → rec λ ψ¹ … ψᵐ → ψᵐ αᵐ₁ … αᵐₙₘ)
+
+encodeData1 {Θs = Θs} = packEncodedDataN Θs ∘ encodeDataN
+compileData d = Lam μ (shiftᵗ $ encodeData1 d) (Var vz)
+compileDatas = instantiations ∘ compileData
+-}
+
+
+
+
 -- | A recursive type packaged along with a specified 'Wrap' that allows to construct elements
 -- of this type.
 data RecursiveType uni ann = RecursiveType
@@ -505,7 +744,7 @@ data IndicesLengthsMismatchException = IndicesLengthsMismatchException
 instance Show IndicesLengthsMismatchException where
     show (IndicesLengthsMismatchException expected actual tyName) = concat
         [ "Wrong number of elements\n"
-        , "expected: ", show expected, " , actual: ", show actual, "\n"
+        , "expected: ", show expected, "; , actual: ", show actual, "\n"
         , "while constructing a ", prettyPlcDefString tyName
         ]
 
