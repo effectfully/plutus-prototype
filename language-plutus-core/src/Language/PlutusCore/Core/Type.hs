@@ -7,8 +7,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Language.PlutusCore.Core.Type
-    ( Gas(..)
-    , Kind(..)
+    ( Kind(..)
     , Type(..)
     , BuiltinName(..)
     , DynamicBuiltinName(..)
@@ -44,10 +43,6 @@ import           Instances.TH.Lift            ()
 Equality of two things does not depend on their annotations.
 So don't use @deriving Eq@ for things with annotations.
 -}
-
-newtype Gas = Gas
-    { unGas :: Natural
-    }
 
 data Kind ann
     = Type ann
