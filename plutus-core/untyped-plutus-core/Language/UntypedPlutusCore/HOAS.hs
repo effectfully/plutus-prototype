@@ -22,6 +22,8 @@ import           Control.Concurrent.MVar
 import           Control.Exception
 import           Control.Lens.TH
 import           Control.Monad.Except
+import           Control.Monad.Morph
+import           Control.Monad.Reader
 import           Data.Array
 import           Data.Bifunctor
 import           Data.Functor
@@ -41,23 +43,23 @@ import           Language.PlutusCore.StdLib.Data.ScottUnit
 -- >>> evaluateHoas (unitval :: Term Name DefaultUni DefaultFun ())
 -- Right (Delay () (LamAbs () (Name {nameString = "x", nameUnique = Unique {unUnique = 1}}) (Var () (Name {nameString = "x", nameUnique = Unique {unUnique = 1}}))))
 
-data HTerm name uni fun ann
+data HTerm m name uni fun ann
     = HConstant ann (Some (ValueOf uni))
     | HBuiltin ann fun
     | HVar ann name
-    | HLamAbs ann name (HTerm name uni fun ann -> HTerm name uni fun ann)
-    | HApply ann (HTerm name uni fun ann) (HTerm name uni fun ann)
-    | HDelay ann (HTerm name uni fun ann)
-    | HForce ann (HTerm name uni fun ann)
+    | HLamAbs ann name (HTerm m name uni fun ann -> m (HTerm m name uni fun ann))
+    | HApply ann (HTerm m name uni fun ann) (HTerm m name uni fun ann)
+    | HDelay ann (m (HTerm m name uni fun ann))
+    | HForce ann (HTerm m name uni fun ann)
     | HError ann
 
-type instance UniOf (HTerm name uni fun ann) = uni
+type instance UniOf (HTerm m name uni fun ann) = uni
 
-instance AsConstant (HTerm name uni fun ann) where
+instance AsConstant (HTerm m name uni fun ann) where
     asConstant (HConstant _ val) = Just val
     asConstant _                 = Nothing
 
-instance FromConstant (HTerm name uni fun ()) where
+instance FromConstant (HTerm m name uni fun ()) where
     fromConstant = HConstant ()
 
 data FreeVariableError name ann = FreeVariableError ann name
@@ -70,13 +72,13 @@ data FreeVariableError name ann = FreeVariableError ann name
 
 -- toHTerm
 --     :: HasUnique name unique
---     => Term name uni fun ann -> Either (FreeVariableError name ann) (HTerm name uni fun ann)
+--     => Term name uni fun ann -> Either (FreeVariableError name ann) (HTerm m name uni fun ann)
 -- toHTerm = go mempty where
 --     go
 --         :: HasUnique name unique
---         => UniqueMap unique (HTerm name uni fun ann)
+--         => UniqueMap unique (HTerm m name uni fun ann)
 --         -> Term name uni fun ann
---         -> Either (FreeVariableError name ann) (HTerm name uni fun ann)
+--         -> Either (FreeVariableError name ann) (HTerm m name uni fun ann)
 --     go _   (Constant ann val)     = pure $ HConstant ann val
 --     go _   (Builtin ann fun)      = pure $ HBuiltin ann fun
 --     go env (Var ann name)         =
@@ -91,43 +93,43 @@ data FreeVariableError name ann = FreeVariableError ann name
 --     go env (Force ann term)       = HForce ann <$> go env term
 --     go _   (Error ann)            = pure (HError ann)
 
-toHTerm
-    :: HasUnique name unique
-    => Term name uni fun ann -> Either (FreeVariableError name ann) (HTerm name uni fun ann)
-toHTerm = pure . go mempty where
-    go
-        :: HasUnique name unique
-        => UniqueMap unique (HTerm name uni fun ann)
-        -> Term name uni fun ann
-        -> HTerm name uni fun ann
-    go _   (Constant ann val)     = HConstant ann val
-    go _   (Builtin ann fun)      = HBuiltin ann fun
-    go env (Var ann name)         =
-        case lookupName name env of
-            Nothing   -> error "free variable" -- throw $ FreeVariableError ann name
-            Just term -> term
-    go env (LamAbs ann name body) =
-        -- That would require an explicit @Lazy@ wrapper, if we didn't use lazy @IntMap@s, I guess.
-        HLamAbs ann name $ \var -> go (insertByName name var env) body
-    go env (Apply ann fun arg)    = HApply ann (go env fun) (go env arg)
-    go env (Delay ann term)       = HDelay ann $ go env term
-    go env (Force ann term)       = HForce ann $ go env term
-    go _   (Error ann)            = HError ann
+-- toHTerm
+--     :: HasUnique name unique
+--     => Term name uni fun ann -> Either (FreeVariableError name ann) (HTerm m name uni fun ann)
+-- toHTerm = pure . go mempty where
+--     go
+--         :: HasUnique name unique
+--         => UniqueMap unique (HTerm m name uni fun ann)
+--         -> Term name uni fun ann
+--         -> HTerm m name uni fun ann
+--     go _   (Constant ann val)     = HConstant ann val
+--     go _   (Builtin ann fun)      = HBuiltin ann fun
+--     go env (Var ann name)         =
+--         case lookupName name env of
+--             Nothing   -> error "free variable" -- throw $ FreeVariableError ann name
+--             Just term -> term
+--     go env (LamAbs ann name body) =
+--         -- That would require an explicit @Lazy@ wrapper, if we didn't use lazy @IntMap@s, I guess.
+--         HLamAbs ann name $ \var -> go (insertByName name var env) body
+--     go env (Apply ann fun arg)    = HApply ann (go env fun) (go env arg)
+--     go env (Delay ann term)       = HDelay ann $ go env term
+--     go env (Force ann term)       = HForce ann $ go env term
+--     go _   (Error ann)            = HError ann
 
-fromHTerm :: HTerm name uni fun ann -> Term name uni fun ann
-fromHTerm (HConstant ann val)     = Constant ann val
-fromHTerm (HBuiltin ann fun)      = Builtin ann fun
-fromHTerm (HVar ann name)         = Var ann name
--- Here we don't recover the original annotation and instead use the one that the whole lambda
--- is annotated with. We could probably handle annotations better, but we don't care for now.
-fromHTerm (HLamAbs ann name body) = LamAbs ann name . fromHTerm . body $ HVar ann name
-fromHTerm (HApply ann fun arg)    = Apply ann (fromHTerm fun) (fromHTerm arg)
-fromHTerm (HDelay ann term)       = Delay ann $ fromHTerm term
-fromHTerm (HForce ann term)       = Force ann $ fromHTerm term
-fromHTerm (HError ann)            = Error ann
+-- fromHTerm :: HTerm m name uni fun ann -> Term name uni fun ann
+-- fromHTerm (HConstant ann val)     = Constant ann val
+-- fromHTerm (HBuiltin ann fun)      = Builtin ann fun
+-- fromHTerm (HVar ann name)         = Var ann name
+-- -- Here we don't recover the original annotation and instead use the one that the whole lambda
+-- -- is annotated with. We could probably handle annotations better, but we don't care for now.
+-- fromHTerm (HLamAbs ann name body) = LamAbs ann name . fromHTerm . body $ HVar ann name
+-- fromHTerm (HApply ann fun arg)    = Apply ann (fromHTerm fun) (fromHTerm arg)
+-- fromHTerm (HDelay ann term)       = Delay ann $ fromHTerm term
+-- fromHTerm (HForce ann term)       = Force ann $ fromHTerm term
+-- fromHTerm (HError ann)            = Error ann
 
-instance PrettyBy config (Term name uni fun ann) => PrettyBy config (HTerm name uni fun ann) where
-    prettyBy config = prettyBy config . fromHTerm
+instance PrettyBy config (Term name uni fun ann) => PrettyBy config (HTerm m name uni fun ann) where
+    prettyBy config = undefined -- prettyBy config . fromHTerm
 
 data UserHoasError
     = HoasEvaluationFailure
@@ -140,20 +142,11 @@ data InternalHoasError
     | TypeHoasError
     deriving (Show, Eq)
 
-makeClassyPrisms ''UserHoasError
-makeClassyPrisms ''InternalHoasError
-
-instance AsInternalHoasError internal => AsInternalHoasError (EvaluationError user internal) where
-    _InternalHoasError = _InternalEvaluationError . _InternalHoasError
-
 instance PrettyBy config UserHoasError where
     prettyBy _ HoasEvaluationFailure = "EvaluationFailure"
 
 instance PrettyBy config InternalHoasError where
     prettyBy _ = pretty . show
-
-instance AsUnliftingError InternalHoasError where
-    _UnliftingError = _UnliftingHoasError
 
 type HoasException name uni fun ann =
     EvaluationException UserHoasError InternalHoasError (Term name uni fun ann)
@@ -167,51 +160,68 @@ freeVariableAsHoasException (FreeVariableError ann name) =
 instance AsEvaluationFailure UserHoasError where
     _EvaluationFailure = _EvaluationFailureVia HoasEvaluationFailure
 
-type EvalM name uni fun ann = Either (HoasException name uni fun ann)
-
-data BuiltinApp name uni fun ann = BuiltinApp
+data BuiltinApp m name uni fun ann = BuiltinApp
     { _builtinAppTerm    :: Term name uni fun ann
-    , _builtinAppRuntime :: BuiltinRuntime (ETerm name uni fun ann)
+    , _builtinAppRuntime :: BuiltinRuntime (ETerm m name uni fun ann)
     }
 
-instance Pretty (BuiltinApp name uni fun ann) where
+type ETerm m name uni fun ann = HTerm m name uni (BuiltinApp m name uni fun ann) ann
+
+data EvalEnv unique name uni fun ann = EvalEnv
+    { _evalEnvVars    :: UniqueMap unique (ETerm (EvalM unique name uni fun ann) name uni fun ann)
+    , _evalEnvRuntime :: BuiltinsRuntime fun (ETerm (EvalM unique name uni fun ann) name uni fun ann)
+    }
+
+type EvalM unique name uni fun ann =
+    ReaderT (EvalEnv unique name uni fun ann)
+        (Either (HoasException name uni fun ann))
+
+makeClassyPrisms ''UserHoasError
+makeClassyPrisms ''InternalHoasError
+
+instance AsInternalHoasError internal => AsInternalHoasError (EvaluationError user internal) where
+    _InternalHoasError = _InternalEvaluationError . _InternalHoasError
+
+instance AsUnliftingError InternalHoasError where
+    _UnliftingError = _UnliftingHoasError
+
+instance Pretty (BuiltinApp m name uni fun ann) where
     pretty _ = mempty
 
-type ETerm name uni fun ann = HTerm name uni (BuiltinApp name uni fun ann) ann
-
 toETerm
-    :: (FromConstant (ETerm name DefaultUni DefaultFun ann), HasUnique name unique)
+    :: (FromConstant (ETerm m name DefaultUni DefaultFun ann), HasUnique name unique)
     => Term name DefaultUni DefaultFun ann
-    -> Either (FreeVariableError name ann) (ETerm name DefaultUni DefaultFun ann)
-toETerm = toHTerm . mapFun toBuiltinApp where
+    -> Either (FreeVariableError name ann) (ETerm m name DefaultUni DefaultFun ann)
+toETerm = undefined {- toHTerm . mapFun toBuiltinApp where
     BuiltinsRuntime meanings = defBuiltinsRuntime
     -- TODO: safe indexing.
-    toBuiltinApp ann fun = BuiltinApp (Builtin ann fun) $ meanings ! fun
+    toBuiltinApp ann fun = BuiltinApp (Builtin ann fun) $ meanings ! fun -}
 
-fromETerm :: ETerm name uni fun ann -> Term name uni fun ann
-fromETerm = bindFun (const _builtinAppTerm) . fromHTerm
+fromETerm :: ETerm m name uni fun ann -> Term name uni fun ann
+fromETerm = undefined -- bindFun (const _builtinAppTerm) . fromHTerm
 
 evalBuiltinApp
     :: ann
     -> Term name uni fun ann
-    -> BuiltinRuntime (ETerm name uni fun ann)
-    -> EvalM name uni fun ann (ETerm name uni fun ann)
+    -> BuiltinRuntime (ETerm m name uni fun ann)
+    -> EvalM unique name uni fun ann (ETerm m name uni fun ann)
 -- Note the absence of 'evalETerm'. Same logic as with the CEK machine applies.
 evalBuiltinApp _   _    (BuiltinRuntime (TypeSchemeResult _) _ x _) = makeKnown x
-evalBuiltinApp ann term runtime                                     =
-    pure . HBuiltin ann $ BuiltinApp term runtime
+evalBuiltinApp ann term runtime                                     = undefined
+    -- pure . Builtin ann $ BuiltinApp term runtime
 
 evalFeedBuiltinApp
-    :: ann
-    -> BuiltinApp name uni fun ann
-    -> Maybe (ETerm name uni fun ann)
-    -> EvalM name uni fun ann (ETerm name uni fun ann)
+    :: m ~ EvalM unique name uni fun ann
+    => ann
+    -> BuiltinApp m name uni fun ann
+    -> Maybe (ETerm m name uni fun ann)
+    -> m (ETerm m name uni fun ann)
 evalFeedBuiltinApp ann (BuiltinApp term (BuiltinRuntime sch ar f _)) e =
     case (sch, e) of
         (TypeSchemeArrow _ schB, Just arg) -> do
-            x <- first (fmap fromETerm) $ readKnown arg
+            x <- hoist (first $ fmap fromETerm) $ readKnown arg
             evalBuiltinApp ann
-                (Apply ann term $ fromETerm arg)
+                (Apply ann term $ fromETerm arg)  -- Laziness rulez.
                 (BuiltinRuntime schB ar (f x) undefined)
         (TypeSchemeAll  _ schK, Nothing) ->
             evalBuiltinApp ann
@@ -221,40 +231,47 @@ evalFeedBuiltinApp ann (BuiltinApp term (BuiltinRuntime sch ar f _)) e =
             throwingWithCause _InternalHoasError ArityHoasError Nothing
 
 evalApply
-    :: ETerm name uni fun ann
-    -> ETerm name uni fun ann
-    -> EvalM name uni fun ann (ETerm name uni fun ann)
-evalApply (HLamAbs _ _ body) arg = evalETerm $ body arg
+    :: m ~ EvalM unique name uni fun ann
+    => ETerm m name uni fun ann
+    -> ETerm m name uni fun ann
+    -> m (ETerm m name uni fun ann)
+evalApply (HLamAbs _ _ body) arg = body arg
 evalApply (HBuiltin ann fun) arg = evalFeedBuiltinApp ann fun $ Just arg
 evalApply term               _   =
     throwingWithCause _InternalHoasError TypeHoasError . Just $ fromETerm term
 
-evalForce :: ETerm name uni fun ann -> EvalM name uni fun ann (ETerm name uni fun ann)
-evalForce (HDelay _ term)    = evalETerm term
+evalForce
+    :: m ~ EvalM unique name uni fun ann
+    => ETerm m name uni fun ann
+    -> m (ETerm m name uni fun ann)
+evalForce (HDelay _ term)    = term
 evalForce (HBuiltin ann fun) = evalFeedBuiltinApp ann fun Nothing
 evalForce term               =
     throwingWithCause _InternalHoasError TypeHoasError . Just $ fromETerm term
 
-evalETerm :: ETerm name uni fun ann -> EvalM name uni fun ann (ETerm name uni fun ann)
-evalETerm term@HConstant{}   = pure term
--- Using 'evalBuiltinApp' here would allows us to have named constants as builtins.
+evalTerm
+    :: m ~ EvalM unique name uni fun ann
+    => Term name uni fun ann
+    -> m (ETerm m name uni fun ann)
+evalTerm (Constant ann val) = pure $ HConstant ann val
+-- Using 'evalBuiltinApp' here would allow us to have named constants as builtins.
 -- Not that this is supported by anything else, though.
-evalETerm term@HBuiltin{}    = pure term
-evalETerm (HVar ann name)    =
-    throwingWithCause _InternalHoasError UnexpectedVariableHoasError . Just $ Var ann name
-evalETerm term@HLamAbs{}     = pure term
-evalETerm (HApply _ fun arg) = do
-    fun' <- evalETerm fun
-    arg' <- evalETerm arg
+evalTerm (Builtin ann fun) = undefined -- pure $ HBuiltin ann fun
+evalTerm (Var ann name) = undefined
+--     throwingWithCause _InternalHoasError UnexpectedVariableHoasError . Just $ Var ann name
+evalTerm (LamAbs ann name body) = undefined
+evalTerm (Apply _ fun arg) = do
+    fun' <- evalTerm fun
+    arg' <- evalTerm arg
     evalApply fun' arg'
-evalETerm term@HDelay{}      = pure term
-evalETerm (HForce _ term)    = evalETerm term >>= evalForce
-evalETerm (HError ann)       = throwingWithCause _EvaluationFailure () . Just $ Error ann
+evalTerm (Delay ann term) = pure . HDelay ann $ evalTerm term  -- Laziness rulez.
+evalTerm (Force ann term) = evalTerm term >>= evalForce
+evalTerm (Error ann) = throwingWithCause _EvaluationFailure () . Just $ Error ann
 
 evaluateHoas
     :: Term Name DefaultUni DefaultFun ()
     -> Either (HoasException Name DefaultUni DefaultFun ()) (Term Name DefaultUni DefaultFun ())
-evaluateHoas = fmap fromETerm . evalETerm <=< first freeVariableAsHoasException . toETerm
+evaluateHoas = flip runReaderT undefined . fmap fromETerm . evalTerm
 
 unsafeEvaluateHoas
     :: Term Name DefaultUni DefaultFun ()
