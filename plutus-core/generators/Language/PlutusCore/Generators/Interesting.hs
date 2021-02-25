@@ -234,7 +234,8 @@ genDivideByZero = do
     let term = mkIterApp () (Builtin () op) [i, mkConstant @Integer () 0]
     return $ TermOf term EvaluationFailure
 
--- | Check that division by zero results in 'Error' even if a function doesn't use that argument.
+-- | Check that having division by zero as an argument results in 'EvaluationFailure'
+-- even if the argument gets dropped.
 genDivideByZeroDrop :: TermGen (EvaluationResult Integer)
 genDivideByZeroDrop = do
     op <- Gen.element [DivideInteger, QuotientInteger, ModInteger, RemainderInteger]
@@ -243,8 +244,8 @@ genDivideByZeroDrop = do
     TermOf i iv <- genTermLoose typedInt
     let term =
             mkIterApp () (mkIterInst () Function.const [int, int])
-                [ mkIterApp () (Builtin () op) [i, mkConstant @Integer () 0]
-                , mkConstant @Integer () iv
+                [ mkConstant @Integer () iv
+                , mkIterApp () (Builtin () op) [i, mkConstant @Integer () 0]
                 ]
     return $ TermOf term EvaluationFailure
 

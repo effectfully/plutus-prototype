@@ -48,7 +48,7 @@ data HTerm m name uni fun ann
     = HConstant ann (Some (ValueOf uni))
     | HBuiltin ann fun
     | HVar ann name
-    | HLamAbs ann name (HTerm m name uni fun ann -> m (HTerm m name uni fun ann))
+    | HLamAbs ann name (m (HTerm m name uni fun ann) -> m (HTerm m name uni fun ann))
     | HApply ann (HTerm m name uni fun ann) (HTerm m name uni fun ann)
     -- @(->) ()@ is to make sure the body of a 'Delay' does not get evaluated before the 'Delay'
     -- is forced. Laziness would already save us, but it's worth being explicit, hence the dummy
@@ -134,7 +134,7 @@ fromHTerm (HBuiltin ann fun)      = pure $ Builtin ann fun
 fromHTerm (HVar ann name)         = pure $ Var ann name
 -- Here we do not recover the original annotation and instead use the one that the whole lambda
 -- is annotated with. We could probably handle annotations better, but we don't care for now.
-fromHTerm (HLamAbs ann name body) = LamAbs ann name <$> (body (HVar ann name) >>= fromHTerm)
+fromHTerm (HLamAbs ann name body) = LamAbs ann name <$> (body (pure $ HVar ann name) >>= fromHTerm)
 fromHTerm (HApply ann fun arg)    = Apply ann <$> fromHTerm fun <*> fromHTerm arg
 fromHTerm (HDelay ann getBody)    = Delay ann <$> (getBody () >>= fromHTerm)
 fromHTerm (HForce ann term)       = Force ann <$> fromHTerm term
@@ -250,11 +250,11 @@ evalFeedBuiltinApp ann (BuiltinApp getTerm (BuiltinRuntime sch ar f _)) e =
 evalApply
     :: ann
     -> Value unique name uni fun ann
-    -> Value unique name uni fun ann
+    -> EvalM unique name uni fun ann (Value unique name uni fun ann)
     -> EvalM unique name uni fun ann (Value unique name uni fun ann)
 evalApply _   (HLamAbs _ _ body) arg = body arg
-evalApply _   (HBuiltin ann fun) arg = evalFeedBuiltinApp ann fun $ Just arg
-evalApply ann fun                arg = pure $ HApply ann fun arg
+evalApply _   (HBuiltin ann fun) arg = arg >>= evalFeedBuiltinApp ann fun . Just
+evalApply ann fun                arg = HApply ann fun <$> arg
 
 -- See Note [Handling non-constant results].
 -- | Force a delayed computation.
@@ -275,18 +275,17 @@ evalTerm
        )
     => BuiltinsRuntime fun value -> term -> evalM value
 evalTerm runtime = go mempty where
-    go :: UniqueMap unique value -> term -> evalM value
+    go :: UniqueMap unique (evalM value) -> term -> evalM value
     go _   (Constant ann val) = pure $ HConstant ann val
     -- Using 'evalBuiltinApp' here would allow us to have named constants as builtins.
     -- Not that this is supported by anything else, though.
     go _   (Builtin ann fun) = lookupBuiltin ann fun runtime
-    go env (Var ann name) = lookupVar ann name env
+    go env (Var ann name) = join $ lookupVar ann name env
     go env (LamAbs ann name body) =
         pure . HLamAbs ann name $ \arg -> go (insertByName name arg env) body
     go env (Apply ann fun arg) = do
         fun' <- go env fun
-        arg' <- go env arg
-        evalApply ann fun' arg'
+        evalApply ann fun' $ go env arg
     go env (Delay ann term) = pure . HDelay ann $ \() -> go env term
     go env (Force ann term) = go env term >>= evalForce ann
     go _   (Error ann) = throwingWithCause _EvaluationFailure () . Just $ HError ann
