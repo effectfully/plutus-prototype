@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes    #-}
 {-# LANGUAGE ConstraintKinds        #-}
+{-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase             #-}
@@ -73,7 +74,7 @@ class TermLike term tyname name uni fun | term -> tyname name uni fun where
 mkTyBuiltin
     :: forall a uni tyname ann. uni `Includes` a
     => ann -> Type tyname uni ann
-mkTyBuiltin ann = TyBuiltin ann . Some . TypeIn $ knownUni @_ @uni @a
+mkTyBuiltin ann = TyBuiltin ann . Some . TypeIn $ knownUni @_ @uni @('K a)
 
 -- | Embed a Haskell value into a PLC term.
 mkConstant

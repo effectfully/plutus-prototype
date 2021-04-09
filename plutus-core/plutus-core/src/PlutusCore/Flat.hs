@@ -1,11 +1,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 {-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE GADTs                #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE StandaloneDeriving   #-}
 {-# LANGUAGE TypeApplications     #-}
 {-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns         #-}
 
 -- | Flat instances for Plutus Core types. Make sure to read the
 -- Note [Stable encoding of PLC] before touching anything in this
@@ -122,7 +124,8 @@ instance (Closed uni, uni `Everywhere` Flat) => Flat (Some (ValueOf uni)) where
     encode (Some (ValueOf uni x)) = encode (Some $ TypeIn uni) <> bring (Proxy @Flat) uni (encode x)
 
     decode = go =<< decode where
-        go (Some (TypeIn uni)) = Some . ValueOf uni <$> bring (Proxy @Flat) uni decode
+        go :: Some (TypeIn uni) -> Get (Some (ValueOf uni))
+        go (Some (TypeIn uni)) = Some . ValueOf (_ uni) <$> _ -- bring (Proxy @Flat) uni decode
 
     -- We need to get the flat instance in scope.
     size (Some (ValueOf uni x)) acc = size (Some $ TypeIn uni) acc

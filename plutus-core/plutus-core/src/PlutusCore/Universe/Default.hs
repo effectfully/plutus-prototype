@@ -1,5 +1,6 @@
 -- | The universe used by default and its instances.
 
+{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE LambdaCase            #-}
@@ -65,16 +66,24 @@ We already allow built-in names with polymorphic types. There might be a way to 
 and have meta-constructors as builtin names. We still have to handle types somehow, though.
 -}
 
+-- data K' (a :: k)
+
+-- data Def a where
+--     DefInteger :: Def Integer
+--     DefList    :: Def (K' [])
+--     DefApply   :: Def (K' f) -> Def a -> Def (K' (f a))
+--     DefUnK     :: Def (K' a) -> Def a
+
 -- | The universe used by default.
-data DefaultUni (a :: k) where
-    DefaultUniInteger    :: DefaultUni Integer
-    DefaultUniByteString :: DefaultUni BS.ByteString
-    DefaultUniChar       :: DefaultUni Char
-    DefaultUniUnit       :: DefaultUni ()
-    DefaultUniBool       :: DefaultUni Bool
-    DefaultUniList       :: DefaultUni []
-    DefaultUniTuple      :: DefaultUni (,)
-    DefaultUniApply      :: !(DefaultUni f) -> !(DefaultUni a) -> DefaultUni (f a)
+data DefaultUni (a :: K) where
+    DefaultUniInteger    :: DefaultUni ('K Integer)
+    DefaultUniByteString :: DefaultUni ('K BS.ByteString)
+    DefaultUniChar       :: DefaultUni ('K Char)
+    DefaultUniUnit       :: DefaultUni ('K ())
+    DefaultUniBool       :: DefaultUni ('K Bool)
+    DefaultUniList       :: DefaultUni ('K [])
+    DefaultUniTuple      :: DefaultUni ('K (,))
+    DefaultUniApply      :: !(DefaultUni ('K f)) -> !(DefaultUni ('K a)) -> DefaultUni ('K (f a))
 
 -- deriveGEq ''DefaultUni
 
@@ -96,7 +105,7 @@ instance Show (DefaultUni a) where
     -- show (DefaultUniTuple a b) = concat ["(", show a, ",", show b, ")"]
     -- show DefaultUniHole        = "_"
 
-instance k ~ * => Parsable (Some (DefaultUni :: k -> *)) where
+instance k ~ * => Parsable (Some DefaultUni) where
     parse "bool"       = Just $ Some DefaultUniBool
     parse "bytestring" = Just $ Some DefaultUniByteString
     parse "char"       = Just $ Some DefaultUniChar
@@ -122,15 +131,16 @@ instance k ~ * => Parsable (Some (DefaultUni :: k -> *)) where
     --             _ -> Nothing
     --     ]
 
-instance DefaultUni `Contains` Integer       where knownUni = DefaultUniInteger
-instance DefaultUni `Contains` BS.ByteString where knownUni = DefaultUniByteString
-instance DefaultUni `Contains` Char          where knownUni = DefaultUniChar
-instance DefaultUni `Contains` ()            where knownUni = DefaultUniUnit
-instance DefaultUni `Contains` Bool          where knownUni = DefaultUniBool
-instance DefaultUni `Contains` []            where knownUni = DefaultUniList
-instance DefaultUni `Contains` (,)           where knownUni = DefaultUniTuple
+instance DefaultUni `Contains` 'K Integer       where knownUni = DefaultUniInteger
+instance DefaultUni `Contains` 'K BS.ByteString where knownUni = DefaultUniByteString
+instance DefaultUni `Contains` 'K Char          where knownUni = DefaultUniChar
+instance DefaultUni `Contains` 'K ()            where knownUni = DefaultUniUnit
+instance DefaultUni `Contains` 'K Bool          where knownUni = DefaultUniBool
+instance DefaultUni `Contains` 'K []            where knownUni = DefaultUniList
+instance DefaultUni `Contains` 'K (,)           where knownUni = DefaultUniTuple
 
-instance (DefaultUni `Contains` f, DefaultUni `Contains` a) => DefaultUni `Contains` (f a) where
+instance (DefaultUni `Contains` 'K f, DefaultUni `Contains` 'K a) =>
+            DefaultUni `Contains` ('K (f a)) where
     knownUni = DefaultUniApply knownUni knownUni
 
 {- Note [Stable encoding of tags]
@@ -151,6 +161,15 @@ instance Closed DefaultUni where
         , constr `Permits` []
         , constr `Permits` (,)
         )
+
+    -- revealK DefaultUniInteger     = DefaultUniInteger
+    -- revealK DefaultUniByteString  = DefaultUniByteString
+    -- revealK DefaultUniChar        = DefaultUniChar
+    -- revealK DefaultUniUnit        = DefaultUniUnit
+    -- revealK DefaultUniBool        = DefaultUniBool
+    -- revealK DefaultUniList        = DefaultUniList
+    -- revealK DefaultUniTuple       = DefaultUniTuple
+    -- revealK (DefaultUniApply f a) = DefaultUniApply f a
 
     -- See Note [Stable encoding of tags].
     encodeUni DefaultUniInteger    = [0]

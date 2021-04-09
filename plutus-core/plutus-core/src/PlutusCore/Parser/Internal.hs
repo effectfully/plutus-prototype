@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
@@ -38,7 +39,7 @@ parseBuiltinFunction name = find (\fun -> display fun == name) enumeration
 -- | Given a type name, return a type in the (default) universe.
 -- This can fail in two ways: there's no type with that name, or decodeUni fails because
 -- it's been given an unknown tag.  In both cases we report an unknown built-in type.
-decodeTypeName :: Parsable (Some uni) => AlexPosn -> T.Text -> Parse (Some uni)
+decodeTypeName :: Parsable (Some @K (TypeIn uni)) => AlexPosn -> T.Text -> Parse (Some @K (TypeIn uni))
 decodeTypeName tyloc typeName =
     case parse typeName of
         Nothing -> throwError $ UnknownBuiltinType tyloc typeName
@@ -47,7 +48,7 @@ decodeTypeName tyloc typeName =
 -- | Convert a textual type name into a Type.
 mkBuiltinType :: Parsable (Some uni) => AlexPosn -> T.Text -> Parse (Type TyName uni AlexPosn)
 mkBuiltinType tyloc typeName =
-    decodeTypeName tyloc typeName <&> \(Some uni) -> TyBuiltin tyloc $ Some (TypeIn uni)
+    decodeTypeName tyloc typeName <&> TyBuiltin tyloc
 
 -- | Produce (the contents of) a constant term from a type name and a literal constant.
 -- We return a pair of the position and the value rather than the actual term, since we want

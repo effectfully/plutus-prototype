@@ -329,7 +329,7 @@ results in
 see https://gitlab.haskell.org/ghc/ghc/-/issues/15710
 -}
 
-type KnownTypeAst :: forall k. (k -> Constraint) -> k -> Constraint
+type KnownTypeAst :: forall k. (k -> GHC.Constraint) -> k -> GHC.Constraint
 class KnownTypeAst uni a where
     -- | The type representing @a@ used on the PLC side.
     toTypeAst :: proxy a -> Type TyName uni ()

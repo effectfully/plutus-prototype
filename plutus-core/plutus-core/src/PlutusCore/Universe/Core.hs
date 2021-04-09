@@ -17,6 +17,7 @@
 module PlutusCore.Universe.Core
     ( Some (..)
     , TypeIn (..)
+    , K (..)
     , ValueOf (..)
     , someValue
     , Contains (..)
@@ -83,29 +84,61 @@ type family All constr xs :: Constraint where
     All constr (x ': xs) = (constr x, All constr xs)
 
 -- | Existential quantification as a data type.
+type Some :: forall k. (k -> *) -> *
 data Some f = forall a. Some (f a)
 
+-- -- | A particular type from a universe.
+-- type TypeIn :: forall k. (k -> *) -> k -> *
+-- newtype TypeIn uni a = TypeIn (uni a)
+
 -- | A particular type from a universe.
-newtype TypeIn uni a = TypeIn (uni a)
+type TypeIn :: (K -> *) -> K -> *
+data TypeIn uni ka where
+    TypeIn :: ka ~ 'K a => uni ka -> TypeIn uni ka
+
+-- -- | A particular type from a universe.
+-- type TypeIn :: (K -> *) -> k -> *
+-- newtype TypeIn uni a = TypeIn (uni ('K a))
+
+data K = forall k. K k
+
+-- -- | A value of a particular type from a universe.
+-- type ValueOf :: (* -> *) -> * -> *
+-- data ValueOf uni a = ValueOf (uni a) a
 
 -- | A value of a particular type from a universe.
-data ValueOf uni a = ValueOf (uni a) a
+type ValueOf :: (K -> *) -> * -> *
+data ValueOf uni a = ValueOf (uni ('K a)) a
 
 -- | A constraint for \"@a@ is in @uni@\".
 type Contains :: forall k. (k -> *) -> k -> Constraint
 class uni `Contains` a where
     knownUni :: uni a
 
-type Includes :: forall k. (* -> *) -> k -> Constraint
-type Includes uni = Permits (Contains uni)
+-- class    constr (f x) => ComposeC constr f x
+-- instance constr (f x) => ComposeC constr f x
+
+-- type Includes :: forall l. (K -> *) -> l -> Constraint
+-- type Includes uni = Permits (ComposeC (Contains uni) 'K)
+
+type Includes :: forall k l. (k -> *) -> l -> Constraint
+class    Contains uni `Permits` 'K a => uni `Includes` a
+instance Contains uni `Permits` 'K a => uni `Includes` a
 
 -- | Same as 'knownUni', but receives a @proxy@.
-knownUniOf :: uni `Includes` a => proxy a -> uni a
+knownUniOf :: forall k (a :: k) uni proxy. uni `Contains` a => proxy a -> uni a
 knownUniOf _ = knownUni
 
 -- | Wrap a value into @SomeValueOf uni@, provided its type is in the universe.
 someValue :: forall a uni. uni `Includes` a => a -> Some (ValueOf uni)
 someValue = Some . ValueOf knownUni
+
+-- type family UnKK ka :: GHC.Type where
+--     UnKK ('K @k _) = k
+
+-- type UnK :: forall ka -> UnKK ka
+-- type family UnK ka where
+--     UnK ('K a) = a
 
 -- | A universe is 'Closed', if it's known how to constrain every type from the universe.
 -- The universe doesn't have to be finite and providing support for infinite universes is the
@@ -118,19 +151,22 @@ someValue = Some . ValueOf knownUni
 --
 -- @UList (UList UInt)@ can be encoded to @[0,0,1]@ where @0@ and @1@ are the integer tags of the
 -- @UList@ and @UInt@ constructors, respectively.
+type Closed :: (K -> *) -> Constraint
 class Closed uni where
     -- | A constrant for \"@constr a@ holds for any @a@ from @uni@\".
     type Everywhere uni (constr :: GHC.Type -> Constraint) :: Constraint
 
+    -- revealK :: uni ka -> uni ('K (UnK ka))
+
     -- | Encode a type as a sequence of 'Int' tags.
     -- The opposite of 'decodeUni'.
-    encodeUni :: uni a -> [Int]
+    encodeUni :: uni ka -> [Int]
 
     decodeUniM :: StateT [Int] Maybe (Some (TypeIn uni))
 
     -- | Bring a @constr a@ instance in scope, provided @a@ is a type from the universe and
     -- @constr@ holds for any type from the universe.
-    bring :: uni `Everywhere` constr => proxy constr -> uni a -> (constr a => r) -> r
+    bring :: uni `Everywhere` constr => proxy constr -> uni ('K a) -> (constr a => r) -> r
 
 -- | Decode a type from a sequence of 'Int' tags.
 -- The opposite of 'encodeUni' (modulo invalid input).
@@ -157,7 +193,7 @@ type Permits2 :: (* -> Constraint) -> (* -> * -> *) -> Constraint
 class    (forall a b. (constr a, constr b) => constr (f a b)) => constr `Permits2` f
 instance (forall a b. (constr a, constr b) => constr (f a b)) => constr `Permits2` f
 
-type Permits :: forall k. (* -> Constraint) -> k -> Constraint
+type Permits :: forall k l. (k -> Constraint) -> l -> Constraint
 type family Permits constr
 
 type instance Permits constr = constr
@@ -307,7 +343,10 @@ instance (GShow uni, Closed uni, uni `Everywhere` Show) => Show (ValueOf uni a) 
 instance GEq f => Eq (Some f) where
     Some a1 == Some a2 = a1 `defaultEq` a2
 
-deriving newtype instance GEq uni => GEq (TypeIn uni)
+instance GEq uni => GEq (TypeIn uni) where
+    TypeIn uni1 `geq` TypeIn uni2 = do
+        Refl <- uni1 `geq` uni2
+        Just Refl
 
 instance (GEq uni, Closed uni, uni `Everywhere` Eq) => GEq (ValueOf uni) where
     ValueOf uni1 x1 `geq` ValueOf uni2 x2 = do

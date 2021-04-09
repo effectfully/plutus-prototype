@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DerivingVia           #-}
 {-# LANGUAGE FlexibleInstances     #-}
@@ -46,7 +47,7 @@ data Kind ann
     deriving (Show, Functor, Generic, NFData, Lift, Hashable)
 
 -- | A 'Type' assigned to expressions.
-data Type tyname uni ann
+data Type tyname (uni :: K -> *) ann
     = TyVar ann tyname
     | TyFun ann (Type tyname uni ann) (Type tyname uni ann)
     | TyIFix ann (Type tyname uni ann) (Type tyname uni ann)
@@ -80,7 +81,7 @@ data Program tyname name uni fun ann = Program ann (Version ann) (Term tyname na
     deriving (Show, Functor, Generic, NFData, Hashable)
 
 -- | Extract the universe from a type.
-type family UniOf a :: * -> *
+type family UniOf a :: K -> *
 
 type instance UniOf (Term tyname name uni fun ann) = uni
 
