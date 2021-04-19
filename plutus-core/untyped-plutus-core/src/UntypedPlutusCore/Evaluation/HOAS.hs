@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass         #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
@@ -28,13 +29,18 @@ import           PlutusCore.Name
 import           PlutusCore.Pretty
 import           PlutusCore.Universe
 
+import           Control.Exception
 import           Control.Lens                            (ix, (^?))
 import           Control.Lens.TH
 import           Control.Monad.Except
 import           Data.Array
 import           Data.Bifunctor
+import           Data.Functor
+import           Data.IORef
 import           Data.Proxy
 import           Data.Typeable
+import           GHC.IO.Exception
+import           System.IO.Unsafe
 
 -- | A higher-order version of 'Term'.
 -- We parameterize it by a monad, because there's no way we could generally convert a first-order
@@ -48,12 +54,12 @@ data HTerm m name uni fun ann
     = HConstant ann (Some (ValueOf uni))
     | HBuiltin ann fun
     | HVar ann name
-    | HLamAbs ann name (HTerm m name uni fun ann -> m (HTerm m name uni fun ann))
+    | HLamAbs ann name (m (HTerm m name uni fun ann) -> m (HTerm m name uni fun ann))
     | HApply ann (HTerm m name uni fun ann) (HTerm m name uni fun ann)
     -- @(->) ()@ is to make sure the body of a 'Delay' does not get evaluated before the 'Delay'
     -- is forced. Laziness would already save us, but it's worth being explicit, hence the dummy
     -- argument.
-    | HDelay ann (() -> m (HTerm m name uni fun ann))
+    | HDelay ann (m (HTerm m name uni fun ann))
     | HForce ann (HTerm m name uni fun ann)
     | HError ann
 
@@ -68,7 +74,7 @@ instance FromConstant (HTerm m name uni fun ()) where
 
 data UserHoasError
     = HoasEvaluationFailure
-    deriving (Show, Eq)
+    deriving (Show, Eq, Exception)
 
 -- Those perhaps shouldn't be called "internal". The user can easily trigger the first three by
 -- uploading the wrong thing. But then we have the same issue with the CEK machine where
@@ -95,7 +101,7 @@ instance AsEvaluationFailure UserHoasError where
 -- | A 'Value' is an 'HTerm' being evaluatated in the 'EvalM' monad and with built-in functions
 -- mapped to their (possibly partially applied) meanings.
 type Value unique name uni fun ann =
-    HTerm (EvalM unique name uni fun ann) name uni (BuiltinApp unique name uni fun ann) ann
+    HTerm IO name uni (BuiltinApp unique name uni fun ann) ann
 
 -- See Note [Builtin application evaluation].
 -- | A builtin application consists of a (possibly partially applied) built-in function and
@@ -103,20 +109,30 @@ type Value unique name uni fun ann =
 -- in case the built-in function never gets fully saturated, which requires us to put the
 -- (possibly partially applied) builtin into the resulting term.
 data BuiltinApp unique name uni fun ann = BuiltinApp
-    { _builtinAppTerm    :: EvalM unique name uni fun ann (Term name uni fun ann)
+    { _builtinAppTerm    :: IO (Term name uni fun ann)
     , _builtinAppRuntime :: BuiltinRuntime (Value unique name uni fun ann)
     }
 
--- 'EvalM' is referenced in 'Value', so 'EvalM' is recursive and hence it has to be a @newtype@.
--- | The monad the HOAS evaluator runs in.
-newtype EvalM unique name uni fun ann a = EvalM
-    { unEvalM :: Either (HoasException fun (Value unique name uni fun ann)) a
-    } deriving newtype
-        ( Functor, Applicative, Monad
-        , MonadError (HoasException fun (Value unique name uni fun ann))
-        )
-      -- No logging for now.
-      deriving (MonadEmitter) via (NoEmitterT (EvalM unique name uni fun ann))
+prerun :: (IO a -> IO (IO b)) -> IO (IO a -> IO b)
+prerun f = do
+    hole <- newIORef $ error "how did you get here?"
+    f (join $ readIORef hole) <&> \b getX' -> do
+        getX <- readIORef hole
+        writeIORef hole getX'
+        b <* writeIORef hole getX
+
+-- -- 'EvalM' is referenced in 'Value', so 'EvalM' is recursive and hence it has to be a @newtype@.
+-- -- | The monad the HOAS evaluator runs in.
+-- newtype IO a = EvalM
+--     { unEvalM :: Either (HoasException fun (Value unique name uni fun ann)) a
+--     } deriving newtype
+--         ( Functor, Applicative, Monad
+--         , MonadError (HoasException fun (Value unique name uni fun ann))
+--         )
+--       -- No logging for now.
+--       deriving (MonadEmitter) via (NoEmitterT (IO))
+
+-- instance MonadError EvalM (
 
 makeClassyPrisms ''UserHoasError
 makeClassyPrisms ''InternalHoasError
@@ -134,9 +150,9 @@ fromHTerm (HBuiltin ann fun)      = pure $ Builtin ann fun
 fromHTerm (HVar ann name)         = pure $ Var ann name
 -- Here we do not recover the original annotation and instead use the one that the whole lambda
 -- is annotated with. We could probably handle annotations better, but we don't care for now.
-fromHTerm (HLamAbs ann name body) = LamAbs ann name <$> (body (HVar ann name) >>= fromHTerm)
+fromHTerm (HLamAbs ann name body) = LamAbs ann name <$> (body (pure $ HVar ann name) >>= fromHTerm)
 fromHTerm (HApply ann fun arg)    = Apply ann <$> fromHTerm fun <*> fromHTerm arg
-fromHTerm (HDelay ann getBody)    = Delay ann <$> (getBody () >>= fromHTerm)
+fromHTerm (HDelay ann getBody)    = Delay ann <$> (getBody >>= fromHTerm)
 fromHTerm (HForce ann term)       = Force ann <$> fromHTerm term
 fromHTerm (HError ann)            = pure $ Error ann
 
@@ -144,36 +160,24 @@ fromHTerm (HError ann)            = pure $ Error ann
 -- extracting all partial builtin applications.
 fromValue
     :: Value unique name uni fun ann
-    -> EvalM unique name uni fun ann (Term name uni fun ann)
+    -> IO (Term name uni fun ann)
 fromValue = fromHTerm >=> bindFunM (const _builtinAppTerm)
-
--- | Run an 'EvalM' computation and convert the cause of a possible error from 'Value' to 'Term'.
-runEvalM
-    :: EvalM unique name uni fun ann a
-    -> Either (HoasException fun (Term name uni fun ann)) a
-runEvalM = bimap errorValueToTerm id . unEvalM where
-    -- Here we call 'runEvalM' recursively. It's fine when the underlying monad is 'Either',
-    -- but if it had 'ReaderT', then we'd also need to make sure that 'runEvalM' is supplied
-    -- with the most recent environment, not the initial one.
-    errorValueToTerm = either id id . traverse (runEvalM . fromValue)
 
 lookupVar
     :: HasUnique name unique
-    => ann -> name -> UniqueMap unique value -> EvalM unique name uni fun ann value
+    => ann -> name -> UniqueMap unique value -> IO value
 lookupVar ann name env =
     case lookupName name env of
         Just term -> pure term
-        Nothing   ->
-            throwingWithCause _InternalHoasError FreeVariableHoasError $
-                Just $ HVar ann name
+        Nothing   -> fail "free variable"
 
 -- | Retrieve the meaning of a built-in function.
 lookupBuiltin
     :: (value ~ Value unique name uni fun ann, Ix fun)
-    => ann -> fun -> BuiltinsRuntime fun value -> EvalM unique name uni fun ann value
+    => ann -> fun -> BuiltinsRuntime fun value -> IO value
 lookupBuiltin ann fun (BuiltinsRuntime meanings) =
     case meanings ^? ix fun of
-        Nothing      -> throwingWithCause _InternalHoasError (UnknownBuiltinHoasError fun) Nothing
+        Nothing      -> fail "unknown builtin"
         Just meaning -> pure . HBuiltin ann $ BuiltinApp (pure $ Builtin ann fun) meaning
 
 {- Note [Handling non-constant results]
@@ -203,14 +207,25 @@ of the builtin and collecting a 'Term' version of the application
 -- builtin application depending on whether the built-in function is fully saturated or not.
 evalBuiltinApp
     :: ann
-    -> EvalM unique name uni fun ann (Term name uni fun ann)
+    -> IO (Term name uni fun ann)
     -> BuiltinRuntime (Value unique name uni fun ann)
-    -> EvalM unique name uni fun ann (Value unique name uni fun ann)
+    -> IO (Value unique name uni fun ann)
 -- Note the absence of 'evalValue'. Same logic as with the CEK machine applies:
 -- 'makeKnown' never returns a non-value term.
 evalBuiltinApp _   _       (BuiltinRuntime (TypeSchemeResult _) _ x _) = makeKnown x
 evalBuiltinApp ann getTerm runtime                                     =
     pure . HBuiltin ann $ BuiltinApp getTerm runtime
+
+deriving via (NoEmitterT IO) instance MonadEmitter IO
+instance AsEvaluationFailure IOException where
+    _EvaluationFailure = _EvaluationFailureVia unsupportedOperation
+
+newtype EvalM unique name (uni :: * -> *) fun ann a = EvalM
+    { unEvalM :: IO a
+    } deriving newtype (Functor, Applicative, Monad)
+
+instance MonadError (HoasException () (Value unique name uni fun ann)) (EvalM unique name uni fun ann) where
+    throwError _ = EvalM $ pure $ error "blah"
 
 -- See Note [Builtin application evaluation].
 -- | Either 'Apply' or 'Force' a (possibly partially applied) built-in function depending on
@@ -223,11 +238,11 @@ evalFeedBuiltinApp
     :: ann
     -> BuiltinApp unique name uni fun ann
     -> Maybe (Value unique name uni fun ann)
-    -> EvalM unique name uni fun ann (Value unique name uni fun ann)
+    -> IO (Value unique name uni fun ann)
 evalFeedBuiltinApp ann (BuiltinApp getTerm (BuiltinRuntime sch ar f _)) e =
     case (sch, e) of
         (TypeSchemeArrow _ schB, Just arg) -> do
-            x <- readKnown arg
+            x <- unEvalM $ readKnown arg
             evalBuiltinApp
                 ann
                 (Apply ann <$> getTerm <*> fromValue arg)
@@ -238,7 +253,7 @@ evalFeedBuiltinApp ann (BuiltinApp getTerm (BuiltinRuntime sch ar f _)) e =
                 (Force ann <$> getTerm)
                 (BuiltinRuntime (schK Proxy) ar f noCosting)
         _ ->
-            throwingWithCause _InternalHoasError ArityHoasError Nothing
+            fail "arity error"
   where
     -- I guess we could use a no-costing version of 'BuiltinRuntime', but I prefer to reuse
     -- the existing one even if it means throwing an error on any attempt to do something
@@ -251,8 +266,8 @@ evalApply
     :: ann
     -> Value unique name uni fun ann
     -> Value unique name uni fun ann
-    -> EvalM unique name uni fun ann (Value unique name uni fun ann)
-evalApply _   (HLamAbs _ _ body) arg = body arg
+    -> IO (Value unique name uni fun ann)
+evalApply _   (HLamAbs _ _ body) arg = body $ pure arg
 evalApply _   (HBuiltin ann fun) arg = evalFeedBuiltinApp ann fun $ Just arg
 evalApply ann fun                arg = pure $ HApply ann fun arg
 
@@ -261,35 +276,95 @@ evalApply ann fun                arg = pure $ HApply ann fun arg
 evalForce
     :: ann
     -> Value unique name uni fun ann
-    -> EvalM unique name uni fun ann (Value unique name uni fun ann)
-evalForce _   (HDelay _ getBody) = getBody ()
+    -> IO (Value unique name uni fun ann)
+evalForce _   (HDelay _ getBody) = getBody
 evalForce _   (HBuiltin ann fun) = evalFeedBuiltinApp ann fun Nothing
 evalForce ann term               = pure $ HForce ann term
 
+-- -- | Evaluate a 'Term' in the 'EvalM' monad using HOAS.
+-- convTerm
+--     :: forall ann fun uni name unique term value.
+--        ( term ~ Term name uni fun ann, value ~ Value unique name uni fun ann
+--        , HasUnique name unique, Ix fun
+--        )
+--     => BuiltinsRuntime fun value -> term -> IO value
+-- convTerm runtime = join . go mempty where
+--     go :: UniqueMap unique (IO value) -> term -> IO (IO value)
+--     go _   (Constant ann val) = pure . pure $ HConstant ann val
+--     -- Using 'evalBuiltinApp' here would allow us to have named constants as builtins.
+--     -- Not that this is supported by anything else, though.
+--     go _   (Builtin ann fun) = pure $ lookupBuiltin ann fun runtime
+--     go env (Var ann name) =
+--         case lookupName name env of
+--             Just term -> pure term
+--             Nothing   -> fail "free variable"
+--     go env (LamAbs ann name body) =
+--         fmap (pure . HLamAbs ann name) . prerun $ \arg -> go (insertByName name arg env) body
+--     go env (Apply ann fun arg) = do
+--         fun' <- join $ go env fun
+--         arg' <- join $ go env arg
+--         pure $ evalApply ann <$> fun' arg'
+--     go env (Delay ann term) = pure $ HDelay ann <$> go env term
+--     go env (Force ann term) = (>>= evalForce ann) <$> go env term
+--     go _   (Error ann) = throwIO HoasEvaluationFailure
+
 -- See Note [Builtin application evaluation]
+-- -- | Evaluate a 'Term' in the 'EvalM' monad using HOAS.
+-- evalTerm
+--     :: forall ann fun uni name unique term value.
+--        ( term ~ Term name uni fun ann, value ~ Value unique name uni fun ann
+--        , HasUnique name unique, Ix fun
+--        )
+--     => BuiltinsRuntime fun value -> term -> IO value
+-- evalTerm runtime = join . go mempty where
+--     go :: UniqueMap unique (IO value) -> term -> IO (IO value)
+--     go _   (Constant ann val) = pure . pure $ HConstant ann val
+--     -- Using 'evalBuiltinApp' here would allow us to have named constants as builtins.
+--     -- Not that this is supported by anything else, though.
+--     go _   (Builtin ann fun) = pure $ lookupBuiltin ann fun runtime
+--     go env (Var ann name) =
+--         case lookupName name env of
+--             Just term -> pure term
+--             Nothing   -> fail "free variable"
+--     go env (LamAbs ann name body) =
+--         fmap (pure . HLamAbs ann name) . prerun $ \arg -> go (insertByName name arg env) body
+--     go env (Apply ann fun arg) = do
+--         fun' <- join $ go env fun
+--         arg' <- join $ go env arg
+--         pure $ evalApply ann fun' arg'
+--     go env (Delay ann term) = pure $ HDelay ann <$> go env term
+--     go env (Force ann term) = (>>= evalForce ann) <$> go env term
+--     go _   (Error ann) = throwIO HoasEvaluationFailure
+
 -- | Evaluate a 'Term' in the 'EvalM' monad using HOAS.
 evalTerm
-    :: forall ann fun uni name unique term value evalM.
+    :: forall ann fun uni name unique term value.
        ( term ~ Term name uni fun ann, value ~ Value unique name uni fun ann
-       , evalM ~ EvalM unique name uni fun ann, HasUnique name unique, Ix fun
+       , HasUnique name unique, Ix fun
        )
-    => BuiltinsRuntime fun value -> term -> evalM value
-evalTerm runtime = go mempty where
-    go :: UniqueMap unique value -> term -> evalM value
-    go _   (Constant ann val) = pure $ HConstant ann val
+    => BuiltinsRuntime fun value -> term -> IO value
+evalTerm runtime = join . go mempty where
+    go :: UniqueMap unique (IO value) -> term -> IO (IO value)
+    go _   (Constant ann val) = pure . pure $ HConstant ann val
     -- Using 'evalBuiltinApp' here would allow us to have named constants as builtins.
     -- Not that this is supported by anything else, though.
-    go _   (Builtin ann fun) = lookupBuiltin ann fun runtime
-    go env (Var ann name) = lookupVar ann name env
+    go _   (Builtin ann fun) = pure <$> lookupBuiltin ann fun runtime
+    go env (Var ann name) =
+        case lookupName name env of
+            Just term -> pure term
+            Nothing   -> fail "free variable"
     go env (LamAbs ann name body) =
-        pure . HLamAbs ann name $ \arg -> go (insertByName name arg env) body
+        fmap (pure . HLamAbs ann name) . prerun $ \arg -> go (insertByName name arg env) body
     go env (Apply ann fun arg) = do
-        fun' <- go env fun
-        arg' <- go env arg
-        evalApply ann fun' arg'
-    go env (Delay ann term) = pure . HDelay ann $ \() -> go env term
-    go env (Force ann term) = go env term >>= evalForce ann
-    go _   (Error ann) = throwingWithCause _EvaluationFailure () . Just $ HError ann
+        getFun' <- go env fun
+        getArg' <- go env arg
+        pure $ do
+            fun' <- getFun'
+            arg' <- getArg'
+            evalApply ann fun' arg'
+    go env (Delay ann term) = pure . HDelay ann <$> go env term
+    go env (Force ann term) = (>>= evalForce ann) <$> go env term
+    go _   (Error ann) = throwIO HoasEvaluationFailure
 
 -- | Evaluate a term using the HOAS evaluator.
 evaluateHoas
@@ -297,7 +372,10 @@ evaluateHoas
        , HasUnique name unique, Ix fun
        )
     => BuiltinsRuntime fun value -> term -> Either (HoasException fun term) term
-evaluateHoas runtime term = runEvalM $ evalTerm runtime term >>= fromValue
+evaluateHoas runtime term =
+    case unsafePerformIO . try @UserHoasError $ evalTerm runtime term >>= fromValue of
+        Left  _ -> throwing_ _EvaluationFailure
+        Right x -> pure x
 
 -- | Evaluate a term using the HOAS evaluator. May throw a 'HoasException'.
 unsafeEvaluateHoas
