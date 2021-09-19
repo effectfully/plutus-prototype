@@ -40,15 +40,15 @@ class Rename a where
 
 instance HasUniques (Type tyname uni ann) => Rename (Type tyname uni ann) where
     -- See Note [Marking].
-    rename = through markNonFreshType >=> runRenameT @TypeRenaming . renameTypeM
+    rename = through markNonFreshType >=> liftQuote . runRenameT @TypeRenaming . renameTypeM
 
 instance HasUniques (Term tyname name uni fun ann) => Rename (Term tyname name uni fun ann) where
     -- See Note [Marking].
-    rename = through markNonFreshTerm >=> runRenameT . renameTermM
+    rename = through markNonFreshTerm >=> liftQuote . runRenameT . renameTermM
 
 instance HasUniques (Program tyname name uni fun ann) => Rename (Program tyname name uni fun ann) where
     -- See Note [Marking].
-    rename = through markNonFreshProgram >=> runRenameT . renameProgramM
+    rename = through markNonFreshProgram >=> liftQuote . runRenameT . renameProgramM
 
 instance Rename a => Rename (Normalized a) where
     rename = traverse rename

@@ -16,12 +16,13 @@ import           UntypedPlutusCore.Rename.Internal
 
 import           PlutusCore.Core                   (HasUniques)
 import           PlutusCore.Name
+import           PlutusCore.Quote
 import           PlutusCore.Rename                 (Rename (..))
 
 instance HasUniques (Term name uni fun ann) => Rename (Term name uni fun ann) where
     -- See Note [Marking].
-    rename = through markNonFreshTerm >=> runRenameT . renameTermM
+    rename = through markNonFreshTerm >=> liftQuote . runRenameT . renameTermM
 
 instance HasUniques (Program name uni fun ann) => Rename (Program name uni fun ann) where
     -- See Note [Marking].
-    rename = through markNonFreshProgram >=> runRenameT . renameProgramM
+    rename = through markNonFreshProgram >=> liftQuote . runRenameT . renameProgramM

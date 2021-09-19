@@ -11,14 +11,13 @@ import           UntypedPlutusCore.Core
 
 import           PlutusCore.Core         (HasUniques)
 import           PlutusCore.Name
-import           PlutusCore.Quote
 import           PlutusCore.Rename.Monad as Export
 
 
 -- | Rename a 'Term' in the 'RenameM' monad.
 renameTermM
-    :: (HasUniques (Term name uni fun ann), MonadQuote m)
-    => Term name uni fun ann -> ScopedRenameT m (Term name uni fun ann)
+    :: HasUniques (Term name uni fun ann)
+    => Term name uni fun ann -> ScopedRenameM (Term name uni fun ann)
 renameTermM (LamAbs ann name body)  =
      withFreshenedName name $ \nameFr -> LamAbs ann nameFr <$> renameTermM body
 renameTermM (Apply ann fun arg)        = Apply ann <$> renameTermM fun <*> renameTermM arg
@@ -31,6 +30,6 @@ renameTermM bi@Builtin{}               = pure bi
 
 -- | Rename a 'Program' in the 'RenameM' monad.
 renameProgramM
-    :: (HasUniques (Program name uni fun ann), MonadQuote m)
-    => Program name uni fun ann -> ScopedRenameT m (Program name uni fun ann)
+    :: HasUniques (Program name uni fun ann)
+    => Program name uni fun ann -> ScopedRenameM (Program name uni fun ann)
 renameProgramM (Program ann ver term) = Program ann ver <$> renameTermM term

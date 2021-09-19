@@ -7,7 +7,8 @@
 
 module PlutusCore.Rename.Monad
     ( RenameT (..)
-    , ScopedRenameT
+    , RenameM
+    , ScopedRenameM
     , Renaming (..)
     , TypeRenaming
     , ScopedRenaming (..)
@@ -38,6 +39,8 @@ newtype RenameT ren m a = RenameT
         , MonadQuote
         )
 
+type RenameM ren = RenameT ren Quote
+
 -- | A renaming is a mapping from old uniques to new ones.
 newtype Renaming unique = Renaming
     { unRenaming :: UniqueMap unique unique
@@ -61,7 +64,7 @@ data ScopedRenaming = ScopedRenaming
 
 makeLenses ''ScopedRenaming
 
-type ScopedRenameT = RenameT ScopedRenaming
+type ScopedRenameM = RenameM ScopedRenaming
 
 instance Semigroup ScopedRenaming where
     ScopedRenaming types1 terms1 <> ScopedRenaming types2 terms2 =
@@ -116,8 +119,8 @@ renameNameM name = do
 -- | Replace the unique in a name by a new unique, save the mapping
 -- from the old unique to the new one and supply the updated value to a continuation.
 withFreshenedName
-    :: (HasRenaming ren unique, HasUnique name unique, MonadQuote m, MonadReader ren m)
-    => name -> (name -> m c) -> m c
+    :: (HasRenaming ren unique, HasUnique name unique)
+    => name -> (name -> RenameM ren c) -> RenameM ren c
 withFreshenedName nameOld k = do
     uniqNew <- coerce <$> freshUnique
     local (insertByNameM nameOld uniqNew) $ k (nameOld & unique .~ uniqNew)

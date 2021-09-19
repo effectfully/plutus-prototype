@@ -18,5 +18,5 @@ names :: TestTree
 names =
     testGroup "names"
         [ test_scopingGood genProgram rename
-        , test_scopingBad genProgram markNonFreshProgram renameProgramM
+--         , test_scopingBad genProgram markNonFreshProgram renameProgramM
         ]
