@@ -180,14 +180,14 @@ instance KnownBuiltinTypeAst DefaultUni [a]           => KnownTypeAst DefaultUni
 instance KnownBuiltinTypeAst DefaultUni (a, b)        => KnownTypeAst DefaultUni (a, b)
 instance KnownBuiltinTypeAst DefaultUni Data          => KnownTypeAst DefaultUni Data
 
-instance KnownBuiltinTypeIn DefaultUni term Integer       => KnownTypeIn DefaultUni term Integer
-instance KnownBuiltinTypeIn DefaultUni term BS.ByteString => KnownTypeIn DefaultUni term BS.ByteString
-instance KnownBuiltinTypeIn DefaultUni term Text.Text     => KnownTypeIn DefaultUni term Text.Text
-instance KnownBuiltinTypeIn DefaultUni term ()            => KnownTypeIn DefaultUni term ()
-instance KnownBuiltinTypeIn DefaultUni term Bool          => KnownTypeIn DefaultUni term Bool
-instance KnownBuiltinTypeIn DefaultUni term [a]           => KnownTypeIn DefaultUni term [a]
-instance KnownBuiltinTypeIn DefaultUni term (a, b)        => KnownTypeIn DefaultUni term (a, b)
-instance KnownBuiltinTypeIn DefaultUni term Data          => KnownTypeIn DefaultUni term Data
+instance KnownBuiltinTypeAst DefaultUni Integer       => KnownTypeIn DefaultUni Integer
+instance KnownBuiltinTypeAst DefaultUni BS.ByteString => KnownTypeIn DefaultUni BS.ByteString
+instance KnownBuiltinTypeAst DefaultUni Text.Text     => KnownTypeIn DefaultUni Text.Text
+instance KnownBuiltinTypeAst DefaultUni ()            => KnownTypeIn DefaultUni ()
+instance KnownBuiltinTypeAst DefaultUni Bool          => KnownTypeIn DefaultUni Bool
+instance KnownBuiltinTypeAst DefaultUni [a]           => KnownTypeIn DefaultUni [a]
+instance KnownBuiltinTypeAst DefaultUni (a, b)        => KnownTypeIn DefaultUni (a, b)
+instance KnownBuiltinTypeAst DefaultUni Data          => KnownTypeIn DefaultUni Data
 
 -- If this tells you a 'KnownTypeIn' instance is missing, add it right above, following the pattern
 -- (you'll also need to add a 'KnownTypeAst' instance as well).
@@ -205,7 +205,7 @@ instance KnownTypeAst DefaultUni Int where
     toTypeAst _ = toTypeAst $ Proxy @Integer
 
 -- See Note [Int as Integer].
-instance HasConstantIn DefaultUni term => KnownTypeIn DefaultUni term Int where
+instance KnownTypeIn DefaultUni Int where
     makeKnown mayCause = makeKnown mayCause . toInteger
     readKnown mayCause term = do
         i :: Integer <- readKnown mayCause term
