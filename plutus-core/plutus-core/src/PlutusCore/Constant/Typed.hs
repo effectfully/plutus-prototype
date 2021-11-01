@@ -48,6 +48,10 @@ module PlutusCore.Constant.Typed
     , readKnownSelf
     , makeKnownOrFail
     , SomeConstant (..)
+    , Repped  -- ^ TODO: don't export the constructor
+    , toRepped
+    , asReppedConstant
+    , fromReppedConstant
     , SomeConstantOf (..)
     ) where
 
@@ -644,8 +648,9 @@ instance KnownTypeIn uni term a => KnownTypeIn uni term (Emitter a) where
 --
 -- The @rep@ parameter specifies how the type looks on the PLC side (i.e. just like with
 -- @Opaque term rep@).
+type SomeConstant :: (GHC.Type -> GHC.Type) -> GHC.Type -> GHC.Type
 newtype SomeConstant uni rep = SomeConstant
-    { unSomeConstant :: Some (ValueOf uni)
+    { unSomeConstant :: Some (ValueOf (Repped rep uni))
     }
 
 instance (uni ~ uni', KnownTypeAst uni rep) => KnownTypeAst uni (SomeConstant uni' rep) where
@@ -655,8 +660,39 @@ instance (uni ~ uni', KnownTypeAst uni rep) => KnownTypeAst uni (SomeConstant un
 
 instance (HasConstantIn uni term, KnownTypeAst uni rep) =>
             KnownTypeIn uni term (SomeConstant uni rep) where
-    makeKnown _ = pure . fromConstant . unSomeConstant
-    readKnown mayCause = fmap SomeConstant . asConstant mayCause
+    makeKnown _ = pure . unOpaque . fromReppedConstant . unSomeConstant
+    readKnown mayCause = fmap SomeConstant . asReppedConstant mayCause . Opaque
+
+type Repped :: forall k. k -> (GHC.Type -> GHC.Type) -> GHC.Type -> GHC.Type
+newtype Repped rep uni a = Repped (uni a)
+    deriving newtype (GEq)
+
+instance HasUniApply uni => HasUniApply (Repped rep uni) where
+    Repped uniF `uniApply` Repped uniX = Repped $ uniF `uniApply` uniX
+
+    matchUniApply (Repped uni) z f = matchUniApply uni z $ coerce f
+
+toRepped :: uni a -> Repped rep uni a
+toRepped = Repped
+
+-- apRepped
+--     :: HasUniApply uni
+--     => Repped rep uni (Esc f)
+--     -> Repped rep uni (Esc x)
+--     -> Repped rep uni (Esc (f x))
+-- apRepped (Repped uniF) (Repped uniX) = Repped $ uniF `uniApply` uniX
+
+asReppedConstant
+    :: ( AsConstant term, MonadError (ErrorWithCause err cause) m, AsUnliftingError err)
+    => Maybe cause -> Opaque term rep -> m (Some (ValueOf (Repped rep (UniOf term))))
+asReppedConstant mayCause term =
+    asConstant mayCause term <&> \(Some (ValueOf uniA x)) -> Some (ValueOf (Repped uniA) x)
+{-# INLINE asReppedConstant #-}  -- TODO: Just in case.
+
+fromReppedConstant
+    :: FromConstant term => Some (ValueOf (Repped rep (UniOf term))) -> Opaque term rep
+fromReppedConstant (Some (ValueOf (Repped uni) x)) = fromConstant $ someValueOf uni x
+{-# INLINE fromReppedConstant #-}  -- TODO: Just in case.
 
 {- | 'SomeConstantOf' is similar to 'SomeConstant': while the latter is for unlifting any
 constants, the former is for unlifting constants of a specific polymorphic built-in type
@@ -691,7 +727,7 @@ type SomeConstantOf :: forall k. (GHC.Type -> GHC.Type) -> k -> [GHC.Type] -> GH
 data SomeConstantOf uni f reps where
     SomeConstantOfRes :: uni (Esc b) -> b -> SomeConstantOf uni b '[]
     SomeConstantOfArg
-        :: uni (Esc a)
+        :: Repped rep uni (Esc a)
         -> SomeConstantOf uni (f a) reps
         -> SomeConstantOf uni f (rep ': reps)
 
@@ -744,8 +780,9 @@ instance (KnownBuiltinTypeIn uni term f, All (KnownTypeAst uni) reps, HasUniAppl
                         matchUniApply
                             uniApp
                             wrongType
-                            (\uniApp' uniA ->
-                                pure $ ReadSomeConstantOf (SomeConstantOfArg uniA acc) uniApp'))
+                            (\uniApp' uniA -> do
+                                let acc' = SomeConstantOfArg (Repped uniA) acc
+                                pure $ ReadSomeConstantOf acc' uniApp'))
             case uniHead `geq` uniF of
                 Nothing   -> wrongType
                 Just Refl -> pure res

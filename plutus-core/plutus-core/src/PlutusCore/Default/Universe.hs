@@ -111,6 +111,8 @@ instance ToKind DefaultUni where
     toSingKind DefaultUniData           = knownKind
 
 instance HasUniApply DefaultUni where
+    uniApply = DefaultUniApply
+
     matchUniApply (DefaultUniApply f a) _ h = h f a
     matchUniApply _                     z _ = z
 

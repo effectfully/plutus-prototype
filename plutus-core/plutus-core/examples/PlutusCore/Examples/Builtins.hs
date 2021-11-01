@@ -262,10 +262,13 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni ExtensionFun where
                             SomeConstantOfRes uniListA $ x : xs
 
     toBuiltinMeaning Comma = makeBuiltinMeaning commaPlc mempty where
-        commaPlc :: SomeConstant uni a -> SomeConstant uni b -> SomeConstantOf uni (,) '[a, b]
+        commaPlc
+            :: SomeConstant uni a
+            -> SomeConstant uni b
+            -> Opaque term (SomeConstantOf uni (,) '[a, b])
         commaPlc (SomeConstant (Some (ValueOf uniA x))) (SomeConstant (Some (ValueOf uniB y))) =
-            let uniPairAB = DefaultUniPair uniA uniB
-            in SomeConstantOfArg uniA (SomeConstantOfArg uniB (SomeConstantOfRes uniPairAB (x, y)))
+            let uniPairAB = (_ (toRepped DefaultUniProtoPair) `uniApply` uniA) `uniApply` uniB
+            in _ $ someValueOf uniPairAB (x, y)
 
     toBuiltinMeaning BiconstPair = makeBuiltinMeaning biconstPairPlc mempty where
         biconstPairPlc

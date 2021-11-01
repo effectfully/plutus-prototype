@@ -547,6 +547,8 @@ type uni1 <: uni2 = uni1 `Everywhere` Includes uni2
 
 -- | A class for \"@uni@ has general type application\".
 class HasUniApply (uni :: Type -> Type) where
+    uniApply :: uni (Esc (f :: k -> l)) -> uni (Esc a) -> uni (Esc (f a))
+
     -- | Deconstruct a type application into the function and the argument and feed them to the
     -- continuation. If the type is not an application, then return the default value.
     matchUniApply

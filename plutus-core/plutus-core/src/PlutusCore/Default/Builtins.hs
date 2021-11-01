@@ -269,7 +269,7 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
         where
           fstPlc :: SomeConstantOf uni (,) '[a, b] -> Opaque term a
           fstPlc (SomeConstantOfArg uniA (SomeConstantOfArg _ (SomeConstantOfRes _ (x, _)))) =
-              fromConstant $ someValueOf uniA x
+              fromReppedConstant $ someValueOf uniA x
     toBuiltinMeaning SndPair =
         makeBuiltinMeaning
             sndPlc
@@ -277,7 +277,7 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
         where
           sndPlc :: SomeConstantOf uni (,) '[a, b] -> Opaque term b
           sndPlc (SomeConstantOfArg _ (SomeConstantOfArg uniB (SomeConstantOfRes _ (_, y)))) =
-              fromConstant $ someValueOf uniB y
+              fromReppedConstant $ someValueOf uniB y
     -- Lists
     toBuiltinMeaning ChooseList =
         makeBuiltinMeaning
@@ -319,7 +319,7 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
           headPlc :: SomeConstantOf uni [] '[a] -> EvaluationResult (Opaque term a)
           headPlc (SomeConstantOfArg uniA (SomeConstantOfRes _ xs)) =
               case xs of
-                x : _ -> EvaluationSuccess . fromConstant $ someValueOf uniA x
+                x : _ -> EvaluationSuccess . fromReppedConstant $ someValueOf uniA x
                 _     -> EvaluationFailure
     toBuiltinMeaning TailList =
         makeBuiltinMeaning
