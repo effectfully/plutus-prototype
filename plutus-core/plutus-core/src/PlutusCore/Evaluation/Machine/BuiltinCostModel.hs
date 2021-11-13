@@ -37,18 +37,18 @@ module PlutusCore.Evaluation.Machine.BuiltinCostModel
     )
 where
 
-import           PlutusPrelude                          hiding (toList)
+import PlutusPrelude hiding (toList)
 
-import           PlutusCore.Evaluation.Machine.ExBudget
-import           PlutusCore.Evaluation.Machine.ExMemory
+import PlutusCore.Evaluation.Machine.ExBudget
+import PlutusCore.Evaluation.Machine.ExMemory
 
-import           Barbies
-import           Data.Aeson
-import           Data.Default.Class
-import           Data.Hashable
-import qualified Data.Kind                              as Kind
-import           Deriving.Aeson
-import           Language.Haskell.TH.Syntax             hiding (Name, newName)
+import Barbies
+import Data.Aeson
+import Data.Default.Class
+import Data.Hashable
+import Data.Kind qualified as Kind
+import Deriving.Aeson
+import Language.Haskell.TH.Syntax hiding (Name, newName)
 
 type BuiltinCostModel = BuiltinCostModelBase CostingFun
 
@@ -372,6 +372,8 @@ runTwoArgumentModel -- Above the diagonal, return the constant. Below the diagon
 data ModelThreeArguments =
     ModelThreeArgumentsConstantCost CostingInteger
   | ModelThreeArgumentsAddedSizes   ModelAddedSizes
+  | ModelThreeArgumentsLinearInX    ModelLinearSize
+  | ModelThreeArgumentsLinearInY    ModelLinearSize
   | ModelThreeArgumentsLinearInZ    ModelLinearSize
     deriving (Show, Eq, Generic, Lift, NFData)
     deriving (FromJSON, ToJSON) via CustomJSON
@@ -392,6 +394,10 @@ runThreeArgumentModel
 runThreeArgumentModel (ModelThreeArgumentsConstantCost c) _ _ _ = c
 runThreeArgumentModel (ModelThreeArgumentsAddedSizes (ModelAddedSizes intercept slope)) (ExMemory size1) (ExMemory size2) (ExMemory size3) =
     (size1 + size2 + size3) * slope + intercept
+runThreeArgumentModel (ModelThreeArgumentsLinearInX (ModelLinearSize intercept slope)) (ExMemory size1) _ _ =
+    size1 * slope + intercept
+runThreeArgumentModel (ModelThreeArgumentsLinearInY (ModelLinearSize intercept slope)) _ (ExMemory size2) _ =
+    size2 * slope + intercept
 runThreeArgumentModel (ModelThreeArgumentsLinearInZ (ModelLinearSize intercept slope)) _ _ (ExMemory size3) =
     size3 * slope + intercept
 

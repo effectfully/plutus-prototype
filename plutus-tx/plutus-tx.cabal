@@ -24,6 +24,7 @@ common lang
                         DeriveGeneric StandaloneDeriving DeriveLift
                         GeneralizedNewtypeDeriving DeriveFunctor DeriveFoldable
                         DeriveTraversable NoImplicitPrelude
+                        ImportQualifiedPost
     ghc-options: -Wall -Wnoncanonical-monad-instances -Wunused-packages
                  -Wincomplete-uni-patterns -Wincomplete-record-updates
                  -Wredundant-constraints -Widentities
@@ -36,6 +37,7 @@ library
     hs-source-dirs: src
     exposed-modules:
         PlutusTx
+        PlutusTx.Coverage
         PlutusTx.TH
         PlutusTx.Prelude
         PlutusTx.Evaluation

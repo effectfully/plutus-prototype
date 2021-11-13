@@ -8,27 +8,28 @@
 
 module CostModelCreation where
 
-import           PlutusCore.Evaluation.Machine.BuiltinCostModel
-import           PlutusCore.Evaluation.Machine.ExMemory
+import PlutusCore.DataFilePaths qualified as DataFilePaths
+import PlutusCore.Evaluation.Machine.BuiltinCostModel
+import PlutusCore.Evaluation.Machine.ExMemory
 
-import           Barbies
-import           Control.Applicative
-import           Control.Exception                              (TypeError (..))
-import           Control.Monad.Catch
-import qualified Data.ByteString.Hash                           as PlutusHash
-import qualified Data.ByteString.Lazy                           as BSL
-import           Data.Coerce
-import           Data.Csv
-import           Data.Either.Extra
-import           Data.Functor.Compose
-import           Data.Text                                      as T
-import qualified Data.Text.Encoding                             as T
-import           Data.Vector
-import           GHC.Generics
+import Barbies
+import Control.Applicative
+import Control.Exception (TypeError (..))
+import Control.Monad.Catch
+import Data.ByteString.Hash qualified as PlutusHash
+import Data.ByteString.Lazy qualified as BSL
+import Data.Coerce
+import Data.Csv
+import Data.Either.Extra
+import Data.Functor.Compose
+import Data.Text as T
+import Data.Text.Encoding qualified as T
+import Data.Vector
+import GHC.Generics
 
-import           Foreign.R
-import           H.Prelude                                      (MonadR, Region, r)
-import           Language.R
+import H.Prelude (MonadR, Region)
+import Language.R (SomeSEXP, defaultConfig, fromSomeSEXP, runRegion, withEmbeddedR)
+import Language.R.QQ (r)
 
 -- | Convert milliseconds represented as a float to picoseconds represented as a
 -- CostingInteger.  We round up to be sure we don't underestimate anything.
@@ -96,17 +97,16 @@ builtinCostModelNames = BuiltinCostModelBase
   , paramMkNilPairData            = "mkNilPairDataModel"
   }
 
+
 -- Loads the models from R
+-- The "_hs" suffixes below make Haskell variables accessible inside [r| ... |]
 costModelsR :: MonadR m => m (BuiltinCostModelBase (Const (SomeSEXP (Region m))))
 costModelsR = do
   list <- [r|
-    source("cost-model/data/models.R")
-    modelFun("cost-model/data/benching.csv")
+    source(DataFilePaths.modelFile_hs)
+    modelFun(DataFilePaths.benchingResultsFile_hs)
   |]
-  -- Unfortunately we can't use the paths defined in DataFilePaths inside [r|...].
-  -- The above code may not work on Windows because of that, but we only ever
-  -- want to run this on a Linux reference machine anyway.
-  bsequence $ bmap (\name -> let n = getConst name in Compose $ fmap Const $ [r| list_hs[[n_hs]] |]) builtinCostModelNames
+  bsequence $ bmap (\name -> let n = getConst name in Compose $ fmap Const $ [r| list_hs [[n_hs]] |]) builtinCostModelNames
   -- TODO ^ use btraverse instead
 
 -- Creates the cost model from the csv benchmarking files
@@ -343,7 +343,7 @@ modInteger = divideInteger
 equalsInteger :: MonadR m => (SomeSEXP (Region m)) -> m (CostingFun ModelTwoArguments)
 equalsInteger cpuModelR = do
   cpuModel <- ModelTwoArgumentsMinSize <$> readModelMinSize cpuModelR
-  pure $ CostingFun (cpuModel) boolMemModel
+  pure $ CostingFun cpuModel boolMemModel
 
 lessThanInteger :: MonadR m => (SomeSEXP (Region m)) -> m (CostingFun ModelTwoArguments)
 lessThanInteger cpuModelR = do
@@ -437,14 +437,34 @@ blake2b cpuModelR = do
   let memModel = ModelOneArgumentConstantCost (memoryUsageAsCostingInteger $ PlutusHash.blake2b "")
   pure $ CostingFun cpuModel memModel
 
--- NB: the R model is based purely on the size of the third argument (since the
--- first two are constant size), so we have to rearrange things a bit to get it to work with
--- a three-argument costing function.
+-- NB: the R model is based purely on the size of the second argument (since the
+-- first and third are constant size), so we have to rearrange things a bit to
+-- get it to work with a three-argument costing function.
 verifySignature :: MonadR m => (SomeSEXP (Region m)) -> m (CostingFun ModelThreeArguments)
 verifySignature cpuModelR = do
   cpuModel <- ModelThreeArgumentsLinearInZ <$> readModelLinearInX cpuModelR
   let memModel =  ModelThreeArgumentsConstantCost 10
   pure $ CostingFun cpuModel memModel
+  {- The CPU model is wrong here, but not in the way that it may appear to be.
+     We're reading a model for X but treating it as a function of Z.  This is
+     partially correct because the benchmark results only record data for the
+     message size, and so R has to treat it as an X value.  However, we should
+     really be modelling it as a function of Y, since that's the 'msg' parameter
+     of the verifySignature function.  So above it should say
+
+        ModelThreeArgumentsLinearInY <$> readModelLinearInX cpuModelR.
+
+     To recapitulate, R is supplying us with a reasonabe model for execution
+     time in terms of message size, but we're feeding that model constant inputs
+     (the size of the signature, 64 bytes/8 words) instead of the size of the
+     signature that we're verifying.  Luckily we can get away with this.  The
+     time taken to run verifySignature in fact appears to be effectively
+     constant, even for very large messages, possibly because the underlying C
+     code is very fast.  The Z-based cost function returns a constant cost since
+     the size of the third argument is constant; we should be using a Y-based
+     function instead, but that would give similar results and we're not
+     undercharging siginficantly.
+   -}
 
 
 ---------------- Strings ----------------
@@ -637,15 +657,17 @@ unBData cpuModelR = do
 
 equalsData :: MonadR m => (SomeSEXP (Region m)) -> m (CostingFun ModelTwoArguments)
 equalsData cpuModelR = do
-  ModelLinearSize intercept slope <- readModelLinearInX cpuModelR
-  let cpuModel = ModelTwoArgumentsMinSize $ ModelMinSize intercept slope
-      memModel = ModelTwoArgumentsConstantCost 1
+  cpuModel <- ModelTwoArgumentsMinSize <$> readModelMinSize cpuModelR
+  let memModel = ModelTwoArgumentsConstantCost 1
   pure $ CostingFun cpuModel memModel
   {- The size function for 'Data' counts the total number of nodes, and so is
      potentially expensive.  Luckily laziness in the costing functions ensures
      that it's only called if really necessary, so it'll be called here but not
      in 'unBData' etc.  Doing the full traversal seems to increase validation times
      by one or two percent, but we can't really avoid it here. -}
+  {- Note that the R code constructs this model in a non-standard way and then
+     returns a model that has been modified to look like a model for minimum sizes
+     so we can read it easily here. -}
   {- Another complication is that 'equalsData' will always return False when the
      arguments are of different size, but it's not clever enough to realise that
      and return immediately, so it may perform a lot of computation even off the

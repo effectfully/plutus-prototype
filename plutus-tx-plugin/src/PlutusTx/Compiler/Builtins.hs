@@ -19,36 +19,33 @@ module PlutusTx.Compiler.Builtins (
     , errorTy
     , errorFunc) where
 
-import qualified PlutusTx.Builtins.Class       as Builtins
-import qualified PlutusTx.Builtins.Internal    as Builtins
+import PlutusTx.Builtins.Class qualified as Builtins
+import PlutusTx.Builtins.Internal qualified as Builtins
 
-import           PlutusTx.Compiler.Error
-import           PlutusTx.Compiler.Names
-import           PlutusTx.Compiler.Types
-import           PlutusTx.Compiler.Utils
-import           PlutusTx.PIRTypes
+import PlutusTx.Compiler.Error
+import PlutusTx.Compiler.Names
+import PlutusTx.Compiler.Types
+import PlutusTx.Compiler.Utils
+import PlutusTx.PIRTypes
 
-import qualified PlutusIR                      as PIR
-import qualified PlutusIR.Compiler.Definitions as PIR
-import           PlutusIR.Compiler.Names
-import qualified PlutusIR.MkPir                as PIR
-import qualified PlutusIR.Purity               as PIR
+import PlutusIR qualified as PIR
+import PlutusIR.Compiler.Definitions qualified as PIR
+import PlutusIR.Compiler.Names
+import PlutusIR.MkPir qualified as PIR
+import PlutusIR.Purity qualified as PIR
 
-import qualified PlutusCore                    as PLC
-import qualified PlutusCore.Constant           as PLC
-import qualified PlutusCore.Data               as PLC
-import           PlutusCore.Quote
+import PlutusCore qualified as PLC
+import PlutusCore.Constant qualified as PLC
+import PlutusCore.Data qualified as PLC
+import PlutusCore.Quote
 
-import qualified GhcPlugins                    as GHC
+import GhcPlugins qualified as GHC
 
-import qualified Language.Haskell.TH.Syntax    as TH
+import Language.Haskell.TH.Syntax qualified as TH
 
-import           Control.Monad.Reader
-
-import qualified Data.ByteString               as BS
-import qualified Data.Map                      as Map
-import           Data.Proxy
-import           Data.Text                     (Text)
+import Data.ByteString qualified as BS
+import Data.Proxy
+import Data.Text (Text)
 
 {- Note [Mapping builtins]
 We want the user to be able to call the Plutus builtins as normal Haskell functions.
@@ -154,7 +151,7 @@ which handles these cases too.
 mkBuiltin :: fun -> PIR.Term tyname name uni fun ()
 mkBuiltin = PIR.Builtin ()
 
--- | The 'TH.Name's for which 'BuiltinNameInfo' needs to be provided.
+-- | The 'TH.Name's for which 'NameInfo' needs to be provided.
 builtinNames :: [TH.Name]
 builtinNames = [
       ''Builtins.BuiltinByteString
@@ -236,15 +233,6 @@ builtinNames = [
     , 'Builtins.unsafeDataAsB
     , 'Builtins.unsafeDataAsI
     ]
-
--- | Get the 'GHC.TyThing' for a given 'TH.Name' which was stored in the builtin name info,
--- failing if it is missing.
-getThing :: Compiling uni fun m => TH.Name -> m GHC.TyThing
-getThing name = do
-    CompileContext{ccBuiltinNameInfo=names} <- ask
-    case Map.lookup name names of
-        Nothing    -> throwSd CompilationError $ "Missing builtin name:" GHC.<+> (GHC.text $ show name)
-        Just thing -> pure thing
 
 defineBuiltinTerm :: Compiling uni fun m => TH.Name -> PIRTerm uni fun -> m ()
 defineBuiltinTerm name term = do

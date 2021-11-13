@@ -19,26 +19,26 @@
 
 module PlutusCore.Constant.Meaning where
 
-import           PlutusPrelude
+import PlutusPrelude
 
-import           PlutusCore.Constant.Dynamic.Emit
-import           PlutusCore.Constant.Function
-import           PlutusCore.Constant.Kinded
-import           PlutusCore.Constant.Typed
-import           PlutusCore.Core
-import           PlutusCore.Evaluation.Machine.Exception
-import           PlutusCore.Evaluation.Result
-import           PlutusCore.Name
+import PlutusCore.Constant.Dynamic.Emit
+import PlutusCore.Constant.Function
+import PlutusCore.Constant.Kinded
+import PlutusCore.Constant.Typed
+import PlutusCore.Core
+import PlutusCore.Evaluation.Machine.Exception
+import PlutusCore.Evaluation.Result
+import PlutusCore.Name
 
-import           Control.Lens                            (ix, (^?))
-import           Control.Monad.Except
-import           Data.Array
-import qualified Data.Kind                               as GHC
-import           Data.Proxy
-import           Data.Some.GADT
-import           Data.Type.Bool
-import           Data.Type.Equality
-import           GHC.TypeLits
+import Control.Lens (ix, (^?))
+import Control.Monad.Except
+import Data.Array
+import Data.Kind qualified as GHC
+import Data.Proxy
+import Data.Some.GADT
+import Data.Type.Bool
+import Data.Type.Equality
+import GHC.TypeLits
 
 -- | The meaning of a built-in function consists of its type represented as a 'TypeScheme',
 -- its Haskell denotation and a costing function (both in uninstantiated form).
@@ -264,22 +264,22 @@ instance
 type HandleSpecialCases :: Nat -> Nat -> GHC.Type -> GHC.Type -> GHC.Constraint
 class HandleSpecialCases i j term a | i term a -> j
 instance {-# OVERLAPPABLE #-} i ~ j => HandleSpecialCases i j term a
--- Note that we don't explicitly handle the no-more-arguments case as it's handled by the
--- @OVERLAPPABLE@ instance right above.
 -- The 'Opaque' wrapper is due to 'TrySpecializeAsVar' trying to unify its last argument with
 -- an 'Opaque' thing, but here we only want to instantiate the type representations.
 -- | Take an argument of a polymorphic built-in type and try to specialize it as a type representing
 -- a PLC type variable.
-instance {-# OVERLAPPING #-}
-    ( TrySpecializeAsVar i j term (Opaque term rep)
-    , HandleSpecialCases j k term (SomeConstantOf uni f reps)
-    ) => HandleSpecialCases i k term (SomeConstantOf uni f (rep ': reps))
 instance {-# OVERLAPPING #-} TrySpecializeAsVar i j term (Opaque term rep) =>
         HandleSpecialCases i j term (SomeConstant uni rep)
 instance {-# OVERLAPPING #-} EnumerateFromToOne i j term a =>
         HandleSpecialCases i j term (EvaluationResult a)
 instance {-# OVERLAPPING #-} EnumerateFromToOne i j term a =>
         HandleSpecialCases i j term (Emitter a)
+-- Note that we don't explicitly handle the no-more-arguments case as it's handled by the
+-- @OVERLAPPABLE@ instance above.
+instance {-# OVERLAPPING #-}
+    ( TrySpecializeAsVar i j term (Opaque term rep)
+    , HandleSpecialCases j k term (SomeConstantPoly uni f reps)
+    ) => HandleSpecialCases i k term (SomeConstantPoly uni f (rep ': reps))
 
 -- | Instantiate an argument or result type.
 type EnumerateFromToOne :: Nat -> Nat -> GHC.Type -> GHC.Type -> GHC.Constraint

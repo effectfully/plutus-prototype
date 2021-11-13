@@ -157,16 +157,16 @@ filter.and.check.nonempty <- function (frame, name) {
 
 adjustModel <- function (m, fname) {
     ## Given a linear model, check its coefficients and if any is negative then
-    ## make it zero and issue a warning.  This is somewhat suspect but will prevent
-    ## us from getting models which predict negative costs.
+    ## make it 1000 and issue a warning.  This is somewhat suspect but will
+    ## prevent us from getting models which predict negative costs.
 
     ## See also https://stackoverflow.com/questions/27244898/force-certain-parameters-to-have-positive-coefficients-in-lm
 
     ensurePositive <- function(x, name) {
         if (x<0) {
-            cat (sprintf("** WARNING: a negative coefficient %f for %s occurred in the model for %s. This has been adjusted to zero.\n",
+            cat (sprintf("** WARNING: a negative coefficient %f for %s occurred in the model for %s. This has been adjusted to 1000.\n",
                          x, name, fname))
-            0
+            1000
         }
         else x
     }
@@ -180,6 +180,7 @@ adjustModel <- function (m, fname) {
 
 
 modelFun <- function(path) {
+##    cat ("** Reading CSV, creating R models **\n")
     data <- get.bench.data(path)
 
     ## Look for a single entry with the given name and return the "Mean" value
@@ -219,7 +220,7 @@ modelFun <- function(path) {
         }
         else {
             cat (sprintf ("* NOTE: mean time for %s was less than overhead (%.3f ms < %.3f ms): set to zero\n",
-                              name, mean.time, args.overhead));
+                          name, mean.time, args.overhead));
             mutate(frame,across(c("Mean", "MeanLB", "MeanUB"), function(x) { x/10000 }))
             ## FIXME.  Don't understand this: putting function(x){0} causes a failure when the model is read from R.
         }
@@ -396,7 +397,14 @@ modelFun <- function(path) {
       adjustModel(m,fname)
     }
 
-    ## This appears to be kind of random, even up to size 120000
+    ## verifySignature in fact takes three arguments, but the first and third
+    ## are of fixed size, so we only gather benchmarking data for different
+    ## sizes of the second argument (the "message" being signed).  This can be
+    ## very large, but the time appears to be kind of random, even up to size
+    ## 120000.  This is somewhat confusing because the CSV file only contains
+    ## results for the x parameter but in fact it refers to the second parameter
+    ## of verifySignature.  To clarify things here we should probably record data
+    ## for all three parameter sizes even though the first and third are constant.
     verifySignatureModel <- {
         fname <- "VerifySignature"
         filtered <- data %>%
@@ -528,17 +536,17 @@ modelFun <- function(path) {
         m <- lm(f$Mean - min.t ~ I(f$x_mem - min.x) + 0)
         s <- coef(m)[1]  ## Not 2: we've used +0, so the intercept doesn't appear in the model
         v <- c(min.t-s*min.x, s) ## ie, f(x) = min.t +s(x-min.x)
-        names(v) <- c("(Intercept)", "x_mem")  ## Make it look like what the Haskell code's expecting.
         pr <- function(x) { v[1] + v[2]*x }  ## What this model predicts.
         errors = (f$Mean-pr(f$x))/f$Mean  ## Residuals as fraction of observed values.
         over = -errors[errors<0]   ## Overpredictions (observed value < prediction) - good, or at least acceptable.
         under = errors[errors>=0]  ## Underpredictions (observed value >= prediction) - bad
         cat (sprintf("# INFO: EqualsData: prediction is an underestimate for %.1f%% of observations.  Maximum underestimate = %.1f%%, mean = %.1f%%\n",
-           (length(under)/length(errors))*100,  max(under)*100, mean(under)*100))
+            (length(under)/length(errors))*100,  max(under)*100, mean(under)*100))
         cat (sprintf("# INFO: EqualsData: prediction is an overestimate for %.1f%% of observations.  Maximum overestimate = %.1f%%, mean = %.1f%%\n",
-        (length(over)/length(errors))*100,  max(over)*100, mean(over)*100))
-        m2 <- lm(Mean ~ x_mem, f)  ## A model with the expected structure
-        m2$coefficients <- v   ## The rest of the data in the model now becomes nonsensical, but we don't use it
+            (length(over)/length(errors))*100,  max(over)*100, mean(over)*100))
+        names(v) <- c("(Intercept)", "pmin(x_mem, y_mem)")  ## Make it look like what the Haskell code's expecting. The space after the comma is important.
+        m2 <- lm(Mean ~ pmin(x_mem, y_mem), data=f) ## A model with the structure expected by CostModelCreation.
+        m2$coefficients <- v   ## The rest of the data in the model now becomes nonsensical, but we don't use it.
         adjustModel(m2,fname)
     }
 
