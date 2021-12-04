@@ -72,6 +72,7 @@ import Data.Some.GADT qualified as GADT
 import Data.String
 import Data.Text (Text)
 import Data.Text qualified as Text
+import GHC.Exts (oneShot)
 import GHC.Ix
 import GHC.TypeLits
 import Universe
@@ -483,10 +484,12 @@ class KnownTypeAst uni (a :: k) where
     type ToBinds (a :: k) :: [GADT.Some TyNameRep]
     type ToBinds _ = '[]
 
+    -- See Note ['KnownTypeIn' and inlining]
     -- | The type representing @a@ used on the PLC side.
     toTypeAst :: proxy a -> Type TyName uni ()
     default toTypeAst :: KnownBuiltinTypeAst uni a => proxy a -> Type TyName uni ()
     toTypeAst _ = mkTyBuiltin @_ @a ()
+    {-# INLINE toTypeAst #-}
 
 -- | Delete all @x@s from a list.
 type family Delete x xs :: [a] where
@@ -521,6 +524,16 @@ instance (HasConstantIn uni term, GShow uni, GEq uni, uni `Contains` a) =>
 -- | A constraint for \"@a@ is a 'KnownType' by means of being included in @UniOf term@\".
 type KnownBuiltinType term a = KnownBuiltinTypeIn (UniOf term) term a
 
+{-
+Note ['KnownTypeIn' and inlining]
+Even though we don't use 'makeKnown' and 'readKnown' directly over concrete types, it's still
+beneficial to inline them, because otherwise GHC compiles each of them to two definitions
+(one calling the other) for some reason.
+
+Similarly, we inline implementations of 'knownTypeAst' just to get tidier Core.
+-}
+
+-- See Note ['KnownTypeIn' and inlining]
 -- We use @default@ for providing instances for built-in types instead of @DerivingVia@, because
 -- the latter breaks on @m a@ (and for brevity).
 -- | Haskell types known to exist on the PLC side.
@@ -546,6 +559,7 @@ class (uni ~ UniOf term, KnownTypeAst uni a) => KnownTypeIn uni term a where
     -- so care must be taken to ensure that every value of a type from the universe gets forced
     -- to NF whenever it's forced to WHNF.
     makeKnown _ _ x = pure . fromConstant . someValue $! x
+    {-# INLINE makeKnown #-}
 
     -- | Convert a PLC term to the corresponding Haskell value.
     -- The inverse of 'makeKnown'.
@@ -558,7 +572,10 @@ class (uni ~ UniOf term, KnownTypeAst uni a) => KnownTypeIn uni term a where
            , KnownBuiltinType term a
            )
         => Maybe cause -> term -> m a
-    readKnown mayCause term = asConstant mayCause term >>= \case
+    -- If 'oneShot' is not used, then GHC pulls @gshow uniExp@ out of the 'Nothing' branch,
+    -- thus allocating a thunk of type 'String' that is completely redundant whenever there's
+    -- no error, which is the majority of cases.
+    readKnown mayCause term = asConstant mayCause term >>= oneShot (\case
         Some (ValueOf uniAct x) -> do
             let uniExp = knownUni @_ @uni @a
             case uniAct `geq` uniExp of
@@ -569,7 +586,8 @@ class (uni ~ UniOf term, KnownTypeAst uni a) => KnownTypeIn uni term a where
                             , "expected: " ++ gshow uniExp
                             , "; actual: " ++ gshow uniAct
                             ]
-                    throwingWithCause _UnliftingError err mayCause
+                    throwingWithCause _UnliftingError err mayCause)
+    {-# INLINE readKnown #-}
 
 -- | Haskell types known to exist on the PLC side. See 'KnownTypeIn'.
 type KnownType term = KnownTypeIn (UniOf term) term
@@ -614,11 +632,13 @@ instance KnownTypeAst uni a => KnownTypeAst uni (EvaluationResult a) where
     type ToBinds (EvaluationResult a) = ToBinds a
 
     toTypeAst _ = toTypeAst $ Proxy @a
+    {-# INLINE toTypeAst #-}
 
 instance (KnownTypeAst uni a, KnownTypeIn uni term a) =>
             KnownTypeIn uni term (EvaluationResult a) where
     makeKnown _    mayCause EvaluationFailure     = throwingWithCause _EvaluationFailure () mayCause
     makeKnown emit mayCause (EvaluationSuccess x) = makeKnown emit mayCause x
+    {-# INLINE makeKnown #-}
 
     -- Catching 'EvaluationFailure' here would allow *not* to short-circuit when 'readKnown' fails
     -- to read a Haskell value of type @a@. Instead, in the denotation of the builtin function
@@ -628,16 +648,21 @@ instance (KnownTypeAst uni a, KnownTypeIn uni term a) =>
     -- We forbid this, because it complicates code and isn't supported by evaluation engines anyway.
     readKnown mayCause _ =
         throwingWithCause _UnliftingError "Error catching is not supported" mayCause
+    {-# INLINE readKnown #-}
 
 instance KnownTypeAst uni a => KnownTypeAst uni (Emitter a) where
     type ToBinds (Emitter a) = ToBinds a
 
     toTypeAst _ = toTypeAst $ Proxy @a
+    {-# INLINE toTypeAst #-}
 
 instance KnownTypeIn uni term a => KnownTypeIn uni term (Emitter a) where
     makeKnown emit mayCause (Emitter k) = k emit >>= makeKnown emit mayCause
+    {-# INLINE makeKnown #-}
+
     -- TODO: we really should tear 'KnownType' apart into two separate type classes.
     readKnown mayCause _ = throwingWithCause _UnliftingError "Can't unlift an 'Emitter'" mayCause
+    {-# INLINE readKnown #-}
 
 -- | For unlifting from the 'Constant' constructor when the stored value is of a monomorphic
 -- built-in type
@@ -652,11 +677,15 @@ instance (uni ~ uni', KnownTypeAst uni rep) => KnownTypeAst uni (SomeConstant un
     type ToBinds (SomeConstant _ rep) = ToBinds rep
 
     toTypeAst _ = toTypeAst $ Proxy @rep
+    {-# INLINE toTypeAst #-}
 
 instance (HasConstantIn uni term, KnownTypeAst uni rep) =>
             KnownTypeIn uni term (SomeConstant uni rep) where
     makeKnown _ _ = pure . fromConstant . unSomeConstant
+    {-# INLINE makeKnown #-}
+
     readKnown mayCause = fmap SomeConstant . asConstant mayCause
+    {-# INLINE readKnown #-}
 
 -- | For unlifting from the 'Constant' constructor when the stored value is of a polymorphic
 -- built-in type.
@@ -677,12 +706,16 @@ instance (uni `Contains` f, uni ~ uni', All (KnownTypeAst uni) reps) =>
                 (Proxy @(All (KnownTypeAst uni) reps))
                 (\(_ :: Proxy (rep ': _reps')) rs -> toTypeAst (Proxy @rep) : rs)
                 []
+    {-# INLINE toTypeAst #-}
 
 instance ( uni `Contains` f, uni ~ uni', All (KnownTypeAst uni) reps
          , HasConstantIn uni term
          ) => KnownTypeIn uni term (SomeConstantPoly uni f reps) where
     makeKnown _ _ = pure . fromConstant . unSomeConstantPoly
+    {-# INLINE makeKnown #-}
+
     readKnown mayCause = fmap SomeConstantPoly . asConstant mayCause
+    {-# INLINE readKnown #-}
 
 toTyNameAst
     :: forall text uniq. (KnownSymbol text, KnownNat uniq)
@@ -697,11 +730,13 @@ instance (var ~ 'TyNameRep text uniq, KnownSymbol text, KnownNat uniq) =>
     type ToBinds (TyVarRep var) = '[ 'GADT.Some var ]
 
     toTypeAst _ = TyVar () . toTyNameAst $ Proxy @('TyNameRep text uniq)
+    {-# INLINE toTypeAst #-}
 
 instance (KnownTypeAst uni fun, KnownTypeAst uni arg) => KnownTypeAst uni (TyAppRep fun arg) where
     type ToBinds (TyAppRep fun arg) = Merge (ToBinds fun) (ToBinds arg)
 
     toTypeAst _ = TyApp () (toTypeAst $ Proxy @fun) (toTypeAst $ Proxy @arg)
+    {-# INLINE toTypeAst #-}
 
 instance
         ( var ~ 'TyNameRep @kind text uniq, KnownSymbol text, KnownNat uniq
@@ -714,16 +749,25 @@ instance
             (toTyNameAst $ Proxy @('TyNameRep text uniq))
             (runSingKind $ knownKind @kind)
             (toTypeAst $ Proxy @a)
+    {-# INLINE toTypeAst #-}
 
 instance KnownTypeAst uni rep => KnownTypeAst uni (Opaque term rep) where
     type ToBinds (Opaque _ rep) = ToBinds rep
 
     toTypeAst _ = toTypeAst $ Proxy @rep
+    {-# INLINE toTypeAst #-}
+
+coerceArg :: Coercible a b => (a -> r) -> b -> r
+coerceArg = coerce
+{-# INLINE coerceArg #-}
 
 instance (term ~ term', uni ~ UniOf term, KnownTypeAst uni rep) =>
             KnownTypeIn uni term (Opaque term' rep) where
-    makeKnown _ _ = pure . unOpaque
-    readKnown _ = pure . Opaque
+    makeKnown _ _ = coerceArg pure  -- A faster @pure . unOpaque@.
+    {-# INLINE makeKnown #-}
+
+    readKnown _ = coerceArg pure  -- A faster @pure . Opaque@.
+    {-# INLINE readKnown #-}
 
 -- Custom type errors to guide the programmer adding a new built-in function.
 -- We cover a lot of cases here, but some are missing, for example we do not attempt to detect
