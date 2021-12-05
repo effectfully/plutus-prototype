@@ -160,6 +160,30 @@ instance Parsable (SomeTypeIn (Kinded DefaultUni)) where
                 _ -> Nothing
         ]
 
+{- Note [Int as Integer]
+We represent 'Int' as 'Integer' in PLC and check that an 'Integer' fits into 'Int' when
+unlifting constants fo type 'Int' and fail with an evaluation failure (via 'AsEvaluationFailure')
+if it doesn't. We couldn't fail via 'AsUnliftingError', because an out-of-bounds error is not an
+internal one -- it's a normal evaluation failure, but unlifting errors have this connotation of
+being "internal".
+-}
+
+instance KnownTypeAst DefaultUni Int where
+    toTypeAst _ = toTypeAst $ Proxy @Integer
+    {-# INLINE toTypeAst #-}
+
+-- See Note [Int as Integer].
+instance HasConstantIn DefaultUni term => KnownTypeIn DefaultUni term Int where
+    makeKnown emit mayCause = makeKnown emit mayCause . toInteger
+    {-# INLINE makeKnown #-}
+
+    readKnown mayCause term = do
+        i :: Integer <- readKnown mayCause term
+        unless (fromIntegral (minBound :: Int) <= i && i <= fromIntegral (maxBound :: Int)) $
+            throwingWithCause _EvaluationFailure () mayCause
+        pure $ fromIntegral i
+    {-# INLINE readKnown #-}
+
 instance DefaultUni `Contains` Integer       where knownUni = DefaultUniInteger
 instance DefaultUni `Contains` BS.ByteString where knownUni = DefaultUniByteString
 instance DefaultUni `Contains` Text.Text     where knownUni = DefaultUniString
@@ -193,26 +217,6 @@ instance KnownBuiltinTypeIn DefaultUni term Data          => KnownTypeIn Default
 -- If this tells you a 'KnownTypeIn' instance is missing, add it right above, following the pattern
 -- (you'll also need to add a 'KnownTypeAst' instance as well).
 instance TestTypesFromTheUniverseAreAllKnown DefaultUni
-
-{- Note [Int as Integer]
-We represent 'Int' as 'Integer' in PLC and check that an 'Integer' fits into 'Int' when
-unlifting constants fo type 'Int' and fail with an evaluation failure (via 'AsEvaluationFailure')
-if it doesn't. We couldn't fail via 'AsUnliftingError', because an out-of-bounds error is not an
-internal one -- it's a normal evaluation failure, but unlifting errors have this connotation of
-being "internal".
--}
-
-instance KnownTypeAst DefaultUni Int where
-    toTypeAst _ = toTypeAst $ Proxy @Integer
-
--- See Note [Int as Integer].
-instance HasConstantIn DefaultUni term => KnownTypeIn DefaultUni term Int where
-    makeKnown emit mayCause = makeKnown emit mayCause . toInteger
-    readKnown mayCause term = do
-        i :: Integer <- readKnown mayCause term
-        unless (fromIntegral (minBound :: Int) <= i && i <= fromIntegral (maxBound :: Int)) $
-            throwingWithCause _EvaluationFailure () mayCause
-        pure $ fromIntegral i
 
 {- Note [Stable encoding of tags]
 'encodeUni' and 'decodeUni' are used for serialisation and deserialisation of types from the

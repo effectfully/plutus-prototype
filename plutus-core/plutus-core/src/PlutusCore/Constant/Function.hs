@@ -29,12 +29,12 @@ typeSchemeToType (TypeSchemeAll proxy schK) = case proxy of
         let text = Text.pack $ symbolVal @text Proxy
             uniq = fromIntegral $ natVal @uniq Proxy
             a    = TyName $ Name text $ Unique uniq
-        in TyForall () a (runSingKind $ knownKind @kind) $ typeSchemeToType (schK Proxy)
+        in TyForall () a (runSingKind $ knownKind @kind) $ typeSchemeToType schK
 
 countTermArgs :: TypeScheme uni args res -> Int
 countTermArgs (TypeSchemeResult _)     = 0
 countTermArgs (TypeSchemeArrow _ schB) = 1 + countTermArgs schB
-countTermArgs (TypeSchemeAll _ schK)   = countTermArgs (schK Proxy)
+countTermArgs (TypeSchemeAll _ schK)   = countTermArgs schK
 
 -- | This type is used when evaluating builtins to decide whether a term argument or a type instantiation is required
 data ArgumentClass
@@ -48,4 +48,4 @@ type Arity = [ArgumentClass]
 getArity ::  TypeScheme uni args res -> Arity
 getArity (TypeSchemeResult _)     = []
 getArity (TypeSchemeArrow _ schB) = TermArg : getArity schB
-getArity (TypeSchemeAll _ schK)   = TypeArg : getArity (schK Proxy)
+getArity (TypeSchemeAll _ schK)   = TypeArg : getArity schK

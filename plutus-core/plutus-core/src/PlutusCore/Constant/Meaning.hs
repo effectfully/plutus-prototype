@@ -1,6 +1,7 @@
 -- GHC doesn't like the definition of 'makeBuiltinMeaning'.
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
+{-# LANGUAGE AllowAmbiguousTypes       #-}
 {-# LANGUAGE ConstraintKinds           #-}
 {-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -38,6 +39,7 @@ import Data.Proxy
 import Data.Some.GADT
 import Data.Type.Bool
 import Data.Type.Equality
+import GHC.Exts
 import GHC.TypeLits
 
 -- | The meaning of a built-in function consists of its type represented as a 'TypeScheme',
@@ -186,19 +188,22 @@ class KnownMonotype term args res a | args res -> a, a -> res where
 -- | Once we've run out of term-level arguments, we return a 'TypeSchemeResult'.
 instance (res ~ res', KnownType term res) => KnownMonotype term '[] res res' where
     knownMonotype = TypeSchemeResult Proxy
+    {-# INLINE knownMonotype #-}
 
 -- | Every term-level argument becomes as 'TypeSchemeArrow'.
 instance (KnownType term arg, KnownMonotype term args res a) =>
             KnownMonotype term (arg ': args) res (arg -> a) where
     knownMonotype = Proxy `TypeSchemeArrow` knownMonotype
+    {-# INLINE knownMonotype #-}
 
 -- | A class that allows us to derive a polytype for a builtin.
 class KnownPolytype (binds :: [Some TyNameRep]) term args res a | args res -> a, a -> res where
-    knownPolytype :: Proxy binds -> TypeScheme term args res
+    knownPolytype :: TypeScheme term args res
 
 -- | Once we've run out of type-level arguments, we start handling term-level ones.
 instance KnownMonotype term args res a => KnownPolytype '[] term args res a where
-    knownPolytype _ = knownMonotype
+    knownPolytype = knownMonotype
+    {-# INLINE knownPolytype #-}
 
 -- Here we unpack an existentially packed @kind@ and constrain it afterwards!
 -- So promoted existentials are true sigmas! If we were at the term level, we'd have to pack
@@ -207,7 +212,8 @@ instance KnownMonotype term args res a => KnownPolytype '[] term args res a wher
 -- | Every type-level argument becomes a 'TypeSchemeAll'.
 instance (KnownSymbol name, KnownNat uniq, KnownKind kind, KnownPolytype binds term args res a) =>
             KnownPolytype ('Some ('TyNameRep @kind name uniq) ': binds) term args res a where
-    knownPolytype _ = TypeSchemeAll @name @uniq @kind Proxy $ \_ -> knownPolytype (Proxy @binds)
+    knownPolytype = TypeSchemeAll @name @uniq @kind Proxy $ knownPolytype @binds
+    {-# INLINE knownPolytype #-}
 
 -- The 'TryUnify' gadget explained in detail in https://github.com/effectfully/sketches/tree/master/poly-type-of-saga/part1-try-unify
 
@@ -340,4 +346,4 @@ makeBuiltinMeaning
        , KnownMonotype term args res a
        )
     => a -> (cost -> FoldArgsEx args) -> BuiltinMeaning term cost
-makeBuiltinMeaning = BuiltinMeaning (knownPolytype (Proxy @binds) :: TypeScheme term args res)
+makeBuiltinMeaning = BuiltinMeaning (knownPolytype @binds :: TypeScheme term args res)
