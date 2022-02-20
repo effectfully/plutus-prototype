@@ -9,14 +9,13 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module PlutusCore.Generators.Internal.Dependent
-    ( AsKnownType (..)
-    , proxyAsKnownType
+    ( AsKnownTypeAst (..)
+    , proxyAsKnownTypeAst
     ) where
 
 import PlutusPrelude
 
 import PlutusCore.Builtin
-import PlutusCore.Core
 
 import Data.GADT.Compare
 import Universe
@@ -27,29 +26,29 @@ liftOrdering LT = GLT
 liftOrdering EQ = error "'liftOrdering': 'Eq'"
 liftOrdering GT = GGT
 
--- | Contains a proof that @a@ is a 'KnownType'.
-data AsKnownType term a where
-    AsKnownType :: KnownType term a => AsKnownType term a
+-- | Contains a proof that @a@ is a 'KnownTypeAst'.
+data AsKnownTypeAst uni a where
+    AsKnownTypeAst :: KnownTypeAst uni a => AsKnownTypeAst uni a
 
-instance GShow (UniOf term) => Pretty (AsKnownType term a) where
-    pretty a@AsKnownType = pretty $ toTypeAst @_ @(UniOf term) a
+instance GShow uni => Pretty (AsKnownTypeAst uni a) where
+    pretty a@AsKnownTypeAst = pretty $ toTypeAst @_ @uni a
 
-instance GShow (UniOf term) => GEq (AsKnownType term) where
+instance GShow uni => GEq (AsKnownTypeAst uni) where
     a `geq` b = do
         -- TODO: there is a HUGE problem here. @EvaluationResult a@ and @a@ have the same string
         -- representation currently, so we need to either fix that or come up with a more sensible
         -- approach, because an attempt to generate a constant application that may fail results in
         -- UNDEFINED BEHAVIOR.
-        -- We can probably require each 'KnownType' to be 'Typeable' and avoid checking for equality
+        -- We can probably require each 'KnownTypeAst' to be 'Typeable' and avoid checking for equality
         -- string representations here, but this complicates the library.
         guard $ display @String a == display b
         Just $ unsafeCoerce Refl
 
-instance GShow (UniOf term) => GCompare (AsKnownType term) where
+instance GShow uni => GCompare (AsKnownTypeAst uni) where
     a `gcompare` b
         | Just Refl <- a `geq` b = GEQ
         | otherwise              = liftOrdering $ display @String a `compare` display b
 
--- | Turn any @proxy a@ into an @AsKnownType a@ provided @a@ is a 'KnownType'.
-proxyAsKnownType :: KnownType term a => proxy a -> AsKnownType term a
-proxyAsKnownType _ = AsKnownType
+-- | Turn any @proxy a@ into an @AsKnownTypeAst a@ provided @a@ is a 'KnownTypeAst'.
+proxyAsKnownTypeAst :: KnownTypeAst uni a => proxy a -> AsKnownTypeAst uni a
+proxyAsKnownTypeAst _ = AsKnownTypeAst

@@ -48,7 +48,7 @@ data TermOf term a = TermOf
 
 -- | A function of this type generates values of built-in typed (see 'TypedBuiltin' for
 -- the list of such types) and returns it along with the corresponding PLC value.
-type TypedBuiltinGenT term m = forall a. AsKnownType term a -> GenT m (TermOf term a)
+type TypedBuiltinGenT term m = forall a. AsKnownTypeAst (UniOf term) a -> GenT m (TermOf term a)
 
 -- | 'TypedBuiltinGenT' specified to 'Identity'.
 type TypedBuiltinGen term = TypedBuiltinGenT term Identity
@@ -77,9 +77,9 @@ updateTypedBuiltinGen
     => GenT m a                  -- ^ A new generator.
     -> TypedBuiltinGenT term m   -- ^ An old typed built-ins generator.
     -> TypedBuiltinGenT term m   -- ^ The updated typed built-ins generator.
-updateTypedBuiltinGen genX genTb akt@AsKnownType
-    | Just Refl <- proxyAsKnownType genX `geq` akt = attachCoercedTerm genX
-    | otherwise                                    = genTb akt
+updateTypedBuiltinGen genX genTb akt@AsKnownTypeAst
+    | Just Refl <- proxyAsKnownTypeAst genX `geq` akt = attachCoercedTerm genX
+    | otherwise                                       = genTb akt
 
 -- | A built-ins generator that always fails.
 genTypedBuiltinFail :: (GShow (UniOf term), Monad m) => TypedBuiltinGenT term m
