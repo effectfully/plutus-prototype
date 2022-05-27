@@ -71,17 +71,21 @@ type family MaybeApply mayVal x where
 -- specialization attempt is successful or not).
 -- @mw@ is for wrapping 'TyVarRep', if there's a wrapper inside (see 'HandleHole' for how it's
 -- used).
-type TrySpecializeAsVar :: forall k. Nat -> Nat -> Maybe (k -> k) -> k -> GHC.Constraint
-class TrySpecializeAsVar i j mw a | i mw a -> j
-instance
-    ( var ~ MaybeApply mw (TyVarRep @k ('TyNameRep (GetName k i) i))
+type TrySpecializeAsVar :: forall k. Nat -> Nat -> Maybe (k -> k) -> Symbol -> k -> GHC.Constraint
+class TrySpecializeAsVar i j mw name a | i mw name a -> j
+instance {-# OVERLAPPABLE #-} i ~ j => TrySpecializeAsVar i j mw "not a variable" a
+instance {-# OVERLAPPING #-}
+    ( var ~ MaybeApply mw (TyVarRep @k ('TyNameRep name i))
     -- Try to unify @a@ with a freshly created @var@.
     , a ~?~ var
     -- If @a@ is equal to @var@ then unification was successful and we just used the fresh id and
     -- so we need to bump it up. Otherwise @var@ was discarded and so the fresh id is still fresh.
     -- Replacing @(===)@ with @(==)@ causes errors at use site, for whatever reason.
     , j ~ If (a === var) (i + 1) i
-    ) => TrySpecializeAsVar i j mw (a :: k)
+    ) => TrySpecializeAsVar i j mw name (a :: k)
+
+type TrySpecializeAsNamedVar :: forall k. Nat -> Nat -> Maybe (k -> k) -> k -> GHC.Constraint
+type TrySpecializeAsNamedVar i j mw a = TrySpecializeAsVar i j mw ('ShowType a) a
 
 type NoAppliedVarsHeader =
     'Text "A built-in function is not allowed to have applied type variables in its type"
@@ -216,7 +220,7 @@ type family UnknownTypeError val x where
         ':$$: 'Text "  ‘" ':<>: 'ShowType x ':<>: 'Text "’"
         ':$$: 'Text "is neither a built-in type, nor one of the control types."
         ':$$: 'Text "If it can be represented in terms of one of the built-in types"
-        ':$$: 'Text "  then go add the instance (you may need a few others too)"
+        ':$$: 'Text "  then go add the instance (you may need a ‘KnownTypeIn’ one too)"
         ':$$: 'Text "  alongside the instance for the built-in type."
         ':$$: 'Text "Otherwise you may need to add a new built-in type"
         ':$$: 'Text "  (provided you're doing something that can be supported in principle)"
