@@ -69,8 +69,12 @@ evalBuiltinApp
 evalBuiltinApp term runtime@(BuiltinRuntime sch getX _) = case sch of
     RuntimeSchemeResult -> case getX of
         MakeKnownFailure logs err       -> emitCkM logs *> throwKnownTypeErrorWithCause term err
-        MakeKnownSuccess x              -> pure x
-        MakeKnownSuccessWithLogs logs x -> emitCkM logs $> x
+        MakeKnownSuccess r              -> case r of
+            Node x [] -> pure x
+            Node _ _  -> error "not yet"
+        MakeKnownSuccessWithLogs logs r -> emitCkM logs $> case r of
+            Node x [] -> x
+            Node _ _  -> error "not yet"
     _ -> pure $ VBuiltin term runtime
 
 ckValueToTerm :: CkValue uni fun -> Term TyName Name uni fun ()

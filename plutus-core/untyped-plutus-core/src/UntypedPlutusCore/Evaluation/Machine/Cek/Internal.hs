@@ -1,4 +1,4 @@
--- | The CEK machine.
+-- | The Term CEK machine.
 -- The CEK machine relies on variables having non-equal 'Unique's whenever they have non-equal
 -- string names. I.e. 'Unique's are used instead of string names. This is for efficiency reasons.
 -- The CEK machines handles name capture by design.
@@ -558,27 +558,6 @@ lookupVarName varName@(NamedDeBruijn _ varIx) varEnv =
             var = Var () varName
         Just val -> pure val
 
--- | Take pieces of a possibly partial builtin application and either create a 'CekValue' using
--- 'makeKnown' or a partial builtin application depending on whether the built-in function is
--- fully saturated or not.
-evalBuiltinApp
-    :: (GivenCekReqs uni fun s, PrettyUni uni fun)
-    => fun
-    -> Term NamedDeBruijn uni fun ()
-    -> BuiltinRuntime (CekValue uni fun)
-    -> CekM uni fun s (CekValue uni fun)
-evalBuiltinApp fun term runtime@(BuiltinRuntime sch getX cost) = case sch of
-    RuntimeSchemeResult -> do
-        spendBudgetCek (BBuiltinApp fun) cost
-        case getX of
-            MakeKnownFailure logs err       -> do
-                ?cekEmitter logs
-                throwKnownTypeErrorWithCause term err
-            MakeKnownSuccess x              -> pure x
-            MakeKnownSuccessWithLogs logs x -> ?cekEmitter logs $> x
-    _ -> pure $ VBuiltin fun term runtime
-{-# INLINE evalBuiltinApp #-}
-
 -- See Note [Compilation peculiarities].
 -- | The entering point to the CEK machine's engine.
 enterComputeCek
@@ -589,6 +568,33 @@ enterComputeCek
     -> Term NamedDeBruijn uni fun ()
     -> CekM uni fun s (Term NamedDeBruijn uni fun ())
 enterComputeCek = computeCek (toWordArray 0) where
+    -- | Take pieces of a possibly partial builtin application and either create a 'CekValue' using
+    -- 'makeKnown' or a partial builtin application depending on whether the built-in function is
+    -- fully saturated or not.
+    evalBuiltinApp
+        :: (GivenCekReqs uni fun s, PrettyUni uni fun)
+        => WordArray
+        -> Context uni fun
+        -> fun
+        -> Term NamedDeBruijn uni fun ()
+        -> BuiltinRuntime (CekValue uni fun)
+        -> CekM uni fun s (Term NamedDeBruijn uni fun ())
+    evalBuiltinApp unbudgetedSteps ctx fun term runtime@(BuiltinRuntime sch getX cost) = case sch of
+        RuntimeSchemeResult -> do
+            spendBudgetCek (BBuiltinApp fun) cost
+            case getX of
+                MakeKnownFailure logs err       -> do
+                    ?cekEmitter logs
+                    throwKnownTypeErrorWithCause term err
+                MakeKnownSuccess r              -> case r of
+                    Node x []     -> returnCek unbudgetedSteps ctx x
+                    Node f (x:xs) -> applyEvaluate unbudgetedSteps ctx f x xs
+                MakeKnownSuccessWithLogs logs r -> ?cekEmitter logs *> case r of
+                    Node x [] -> returnCek unbudgetedSteps ctx x
+                    Node _ _  -> error "not yet"
+        _ -> returnCek unbudgetedSteps ctx $ VBuiltin fun term runtime
+    {-# INLINE evalBuiltinApp #-}
+
     -- | The computing part of the CEK machine.
     -- Either
     -- 1. adds a frame to the context and calls 'computeCek' ('Force', 'Apply')
@@ -662,7 +668,7 @@ enterComputeCek = computeCek (toWordArray 0) where
     -- s , [(lam x (M,ρ)) _] ◅ V  ↦  s ; ρ [ x  ↦  V ] ▻ M
     -- FIXME: add rule for VBuiltin once it's in the specification.
     returnCek !unbudgetedSteps (FrameApplyFun fun ctx) arg =
-        applyEvaluate unbudgetedSteps ctx fun arg
+        applyEvaluate unbudgetedSteps ctx fun (pure arg) []
 
     -- | @force@ a term and proceed.
     -- If v is a delay then compute the body of v;
@@ -687,8 +693,7 @@ enterComputeCek = computeCek (toWordArray 0) where
                 -- We allow a type argument to appear last in the type of a built-in function,
                 -- otherwise we could just assemble a 'VBuiltin' without trying to evaluate the
                 -- application.
-                res <- evalBuiltinApp fun term' runtime'
-                returnCek unbudgetedSteps ctx res
+                evalBuiltinApp unbudgetedSteps ctx fun term' runtime'
             _ ->
                 throwingWithCause _MachineError BuiltinTermArgumentExpectedMachineError (Just term')
     forceEvaluate !_ !_ val =
@@ -704,14 +709,15 @@ enterComputeCek = computeCek (toWordArray 0) where
     applyEvaluate
         :: WordArray
         -> Context uni fun
-        -> CekValue uni fun   -- lhs of application
-        -> CekValue uni fun   -- rhs of application
+        -> CekValue uni fun
+        -> Tree (CekValue uni fun)
+        -> [Tree (CekValue uni fun)]
         -> CekM uni fun s (Term NamedDeBruijn uni fun ())
-    applyEvaluate !unbudgetedSteps !ctx (VLamAbs _ body env) arg =
+    applyEvaluate !unbudgetedSteps !ctx (VLamAbs _ body env) arg rest =
         computeCek unbudgetedSteps ctx (Env.cons arg env) body
     -- Annotating @f@ and @exF@ with bangs gave us some speed-up, but only until we added a bang to
     -- 'VCon'. After that the bangs here were making things a tiny bit slower and so we removed them.
-    applyEvaluate !unbudgetedSteps !ctx (VBuiltin fun term (BuiltinRuntime sch f exF)) arg = do
+    applyEvaluate !unbudgetedSteps !ctx (VBuiltin fun term (BuiltinRuntime sch f exF)) arg rest = do
         let argTerm = dischargeCekValue arg
             -- @term@ and @argTerm@ are fully discharged, and so @term'@ is, hence we can put it
             -- in a 'VBuiltin'.
@@ -726,11 +732,10 @@ enterComputeCek = computeCek (toWordArray 0) where
                     -- We pattern match on @arg@ twice: in 'readKnown' and in 'toExMemory'.
                     -- Maybe we could fuse the two?
                     let runtime' = BuiltinRuntime schB y . exF $ toExMemory arg
-                    res <- evalBuiltinApp fun term' runtime'
-                    returnCek unbudgetedSteps ctx res
+                    evalBuiltinApp unbudgetedSteps ctx fun term' runtime'
             _ ->
                 throwingWithCause _MachineError UnexpectedBuiltinTermArgumentMachineError (Just term')
-    applyEvaluate !_ !_ val _ =
+    applyEvaluate !_ !_ val _ _ =
         throwingDischarged _MachineError NonFunctionalApplicationMachineError val
 
     -- | Spend the budget that has been accumulated for a number of machine steps.

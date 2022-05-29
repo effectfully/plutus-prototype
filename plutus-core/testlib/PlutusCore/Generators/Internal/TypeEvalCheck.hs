@@ -102,7 +102,7 @@ typeEvalCheckBy
        -- ^ An evaluator.
     -> TermOf (Term TyName Name uni fun ()) a
     -> TypeEvalCheckM uni fun (TermOf (Term TyName Name uni fun ()) (TypeEvalCheckResult uni fun))
-typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> do
+typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> undefined {- do
     let tyExpected = runQuote . normalizeType $ toTypeAst (Proxy @a)
         valExpected = makeKnownOrFail x
     tyActual <- runQuoteT $ do
@@ -115,7 +115,7 @@ typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> do
                         then return $ TypeEvalCheckResult tyExpected valActual
                         else throwError $ TypeEvalCheckErrorIllEvaled valExpected valActual
                 Left exc        -> throwError $ TypeEvalCheckErrorException $ show exc
-        else throwError $ TypeEvalCheckErrorIllTyped tyExpected tyActual
+        else throwError $ TypeEvalCheckErrorIllTyped tyExpected tyActual -}
 
 -- | Type check and evaluate a term and check that the expected result is equal to the actual one.
 -- Throw an error in case something goes wrong.
