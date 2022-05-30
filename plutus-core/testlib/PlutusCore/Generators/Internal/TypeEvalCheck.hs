@@ -51,7 +51,7 @@ data TypeEvalCheckError uni fun
           (Normalized (Type TyName uni ()))
     | TypeEvalCheckErrorException String
     | TypeEvalCheckErrorIllEvaled
-          (EvaluationResult (Term TyName Name uni fun ()))
+          (EvaluationResult (NonEmpty (Term TyName Name uni fun ())))
           (EvaluationResult (Term TyName Name uni fun ()))
       -- ^ The former is an expected result of evaluation, the latter -- is an actual one.
 makeClassyPrisms ''TypeEvalCheckError
@@ -71,6 +71,7 @@ data TypeEvalCheckResult uni fun = TypeEvalCheckResult
     }
 
 instance ( PrettyBy config (Type TyName uni ())
+         , PrettyBy config (NonEmpty (Term TyName Name uni fun ()))
          , PrettyBy config (Term TyName Name uni fun ())
          , PrettyBy config (Error uni fun ())
          ) => PrettyBy config (TypeEvalCheckError uni fun) where
@@ -102,7 +103,7 @@ typeEvalCheckBy
        -- ^ An evaluator.
     -> TermOf (Term TyName Name uni fun ()) a
     -> TypeEvalCheckM uni fun (TermOf (Term TyName Name uni fun ()) (TypeEvalCheckResult uni fun))
-typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> undefined {- do
+typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> do
     let tyExpected = runQuote . normalizeType $ toTypeAst (Proxy @a)
         valExpected = makeKnownOrFail x
     tyActual <- runQuoteT $ do
@@ -111,11 +112,11 @@ typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> undefined {- do
     if tyExpected == tyActual
         then case extractEvaluationResult $ eval term of
                 Right valActual ->
-                    if valExpected == valActual
+                    if valExpected == fmap pure valActual
                         then return $ TypeEvalCheckResult tyExpected valActual
                         else throwError $ TypeEvalCheckErrorIllEvaled valExpected valActual
                 Left exc        -> throwError $ TypeEvalCheckErrorException $ show exc
-        else throwError $ TypeEvalCheckErrorIllTyped tyExpected tyActual -}
+        else throwError $ TypeEvalCheckErrorIllTyped tyExpected tyActual
 
 -- | Type check and evaluate a term and check that the expected result is equal to the actual one.
 -- Throw an error in case something goes wrong.

@@ -59,7 +59,7 @@ instance (PrettyBy config a, PrettyBy config term) =>
 attachCoercedTerm
     :: (Monad m, MakeKnown term a, PrettyConst a)
     => GenT m a -> GenT m (TermOf term a)
-attachCoercedTerm a = undefined {- do
+attachCoercedTerm a = do
     x <- a
     case makeKnownOrFail x of
         -- I've attempted to implement support for generating 'EvaluationFailure',
@@ -68,7 +68,9 @@ attachCoercedTerm a = undefined {- do
             [ "Got 'EvaluationFailure' when generating a value of a built-in type: "
             , show $ prettyConst x
             ]
-        EvaluationSuccess v -> pure $ TermOf v x -}
+        EvaluationSuccess r -> case r of
+            v :| [] -> pure $ TermOf v x
+            _       -> fail "Iterated application is not supported"
 
 -- | Update a typed built-ins generator by overwriting the generator for a certain built-in.
 updateTypedBuiltinGen

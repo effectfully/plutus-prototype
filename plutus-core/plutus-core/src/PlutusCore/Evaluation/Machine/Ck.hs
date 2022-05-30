@@ -59,24 +59,6 @@ data CkValue uni fun =
   | VBuiltin (Term TyName Name uni fun ()) (BuiltinRuntime (CkValue uni fun))
     deriving stock (Show)
 
--- | Take pieces of a possibly partial builtin application and either create a 'CkValue' using
--- 'makeKnown' or a partial builtin application depending on whether the built-in function is
--- fully saturated or not.
-evalBuiltinApp
-    :: Term TyName Name uni fun ()
-    -> BuiltinRuntime (CkValue uni fun)
-    -> CkM uni fun s (CkValue uni fun)
-evalBuiltinApp term runtime@(BuiltinRuntime sch getX _) = case sch of
-    RuntimeSchemeResult -> case getX of
-        MakeKnownFailure logs err       -> emitCkM logs *> throwKnownTypeErrorWithCause term err
-        MakeKnownSuccess r              -> case r of
-            Node x [] -> pure x
-            Node _ _  -> error "not yet"
-        MakeKnownSuccessWithLogs logs r -> emitCkM logs $> case r of
-            Node x [] -> x
-            Node _ _  -> error "not yet"
-    _ -> pure $ VBuiltin term runtime
-
 ckValueToTerm :: CkValue uni fun -> Term TyName Name uni fun ()
 ckValueToTerm = \case
     VCon val             -> Constant () val
@@ -135,6 +117,7 @@ instance HasConstant (CkValue uni fun) where
 data Frame uni fun
     = FrameApplyFun (CkValue uni fun)                       -- ^ @[V _]@
     | FrameApplyArg (Term TyName Name uni fun ())           -- ^ @[_ N]@
+    | FrameApplyArgVal (CkValue uni fun)
     | FrameTyInstArg (Type TyName uni ())                   -- ^ @{_ A}@
     | FrameUnwrap                                           -- ^ @(unwrap _)@
     | FrameIWrap (Type TyName uni ()) (Type TyName uni ())  -- ^ @(iwrap A B _)@
@@ -209,6 +192,32 @@ substTyInTy tn0 ty0 = go where
          bt@TyBuiltin{}      -> bt
     goUnder tn ty = if tn == tn0 then ty else go ty
 
+extendContext :: [CkValue uni fun] -> Context uni fun -> Context uni fun
+extendContext args ctx = map FrameApplyArgVal args ++ ctx
+
+returnCkNonEmpty
+    :: Ix fun
+    => Context uni fun
+    -> NonEmpty (CkValue uni fun)
+    -> CkM uni fun s (Term TyName Name uni fun ())
+returnCkNonEmpty stack (f :| xs) = extendContext xs stack <| f
+
+-- | Take pieces of a possibly partial builtin application and either create a 'CkValue' using
+-- 'makeKnown' or a partial builtin application depending on whether the built-in function is
+-- fully saturated or not.
+evalBuiltinApp
+    :: Ix fun
+    => Context uni fun
+    -> Term TyName Name uni fun ()
+    -> BuiltinRuntime (CkValue uni fun)
+    -> CkM uni fun s (Term TyName Name uni fun ())
+evalBuiltinApp stack term runtime@(BuiltinRuntime sch getX _) = case sch of
+    RuntimeSchemeResult -> case getX of
+        MakeKnownFailure logs err       -> emitCkM logs *> throwKnownTypeErrorWithCause term err
+        MakeKnownSuccess r              -> returnCkNonEmpty stack r
+        MakeKnownSuccessWithLogs logs r -> emitCkM logs *> returnCkNonEmpty stack r
+    _ -> stack <| VBuiltin term runtime
+
 -- FIXME: make sure that the specification is up to date and that this matches.
 -- | The computing part of the CK machine. Rules are as follows:
 --
@@ -257,6 +266,7 @@ _     |> var@Var{}               =
 []                         <| val     = pure $ ckValueToTerm val
 FrameTyInstArg ty  : stack <| fun     = instantiateEvaluate stack ty fun
 FrameApplyArg arg  : stack <| fun     = FrameApplyFun fun : stack |> arg
+FrameApplyArgVal arg : stack <| fun   = applyEvaluate stack fun arg
 FrameApplyFun fun  : stack <| arg     = applyEvaluate stack fun arg
 FrameIWrap pat arg : stack <| value   = stack <| VIWrap pat arg value
 FrameUnwrap        : stack <| wrapped = case wrapped of
@@ -284,8 +294,7 @@ instantiateEvaluate stack ty (VBuiltin term (BuiltinRuntime sch f exF)) = do
         -- application.
         RuntimeSchemeAll schK -> do
             let runtime' = BuiltinRuntime schK f exF
-            res <- evalBuiltinApp term' runtime'
-            stack <| res
+            evalBuiltinApp stack term' runtime'
         _ -> throwingWithCause _MachineError BuiltinTermArgumentExpectedMachineError (Just term')
 instantiateEvaluate _ _ val =
     throwingWithCause _MachineError NonPolymorphicInstantiationMachineError $ Just $ ckValueToTerm val
@@ -314,8 +323,7 @@ applyEvaluate stack (VBuiltin term (BuiltinRuntime sch f exF)) arg = do
                 -- The CK machine does not support costing, so we just apply the costing function
                 -- to 'mempty'.
                 let runtime' = BuiltinRuntime schB y (exF mempty)
-                res <- evalBuiltinApp term' runtime'
-                stack <| res
+                evalBuiltinApp stack term' runtime'
         _ ->
             throwingWithCause _MachineError UnexpectedBuiltinTermArgumentMachineError (Just term')
 applyEvaluate _ val _ =

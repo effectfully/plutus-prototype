@@ -104,7 +104,10 @@ prop_builtinEvaluation ::
     (fun -> Gen [Term uni fun]) ->
     -- | A function that takes a builtin function, a list of arguments, and the evaluation
     -- outcome, and decides whether to pass or fail the property.
-    (fun -> [Term uni fun] -> Either SomeException (MakeKnownM (Term uni fun)) -> PropertyT IO ()) ->
+    (fun ->
+        [Term uni fun] ->
+            Either SomeException (MakeKnownM (NonEmpty (Term uni fun))) ->
+                PropertyT IO ()) ->
     Property
 prop_builtinEvaluation bn mkGen f = property $ do
     args <- forAllNoShow (mkGen bn)
@@ -113,7 +116,7 @@ prop_builtinEvaluation bn mkGen f = property $ do
     meaning :: BuiltinMeaning (Term uni fun) (CostingPart uni fun)
     meaning = toBuiltinMeaning bn
 
-    eval :: [Term uni fun] -> MakeKnownM (Term uni fun)
+    eval :: [Term uni fun] -> MakeKnownM (NonEmpty (Term uni fun))
     eval args0 = case meaning of
         BuiltinMeaning _ _ runtime -> go (_broRuntimeScheme runtime) (_broImmediateF runtime) args0
       where
@@ -122,7 +125,7 @@ prop_builtinEvaluation bn mkGen f = property $ do
             RuntimeScheme n ->
             ToRuntimeDenotationType (Term uni fun) n ->
             [Term uni fun] ->
-            MakeKnownM (Term uni fun)
+            MakeKnownM (NonEmpty (Term uni fun))
         go sch fn args = case (sch, args) of
             (RuntimeSchemeArrow sch', a : as) -> do
                 res <- liftReadKnownM (fn a)

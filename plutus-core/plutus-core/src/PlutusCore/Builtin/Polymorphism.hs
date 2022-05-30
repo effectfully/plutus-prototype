@@ -10,6 +10,8 @@
 module PlutusCore.Builtin.Polymorphism
     ( Opaque (..)
     , SomeConstant (..)
+    , coerceVia
+    , coerceArg
     , TyNameRep (..)
     , TyVarRep
     , TyAppRep
@@ -19,6 +21,7 @@ module PlutusCore.Builtin.Polymorphism
 import PlutusCore.Builtin.HasConstant
 import PlutusCore.Core
 
+import Data.Coerce
 import Data.Kind qualified as GHC (Type)
 import GHC.Ix
 import GHC.TypeLits
@@ -67,6 +70,27 @@ type instance UniOf (Opaque val rep) = UniOf val
 newtype SomeConstant uni (rep :: GHC.Type) = SomeConstant
     { unSomeConstant :: Some (ValueOf uni)
     }
+
+type instance UniOf (SomeConstant uni rep) = uni
+
+instance HasConstant (SomeConstant uni rep) where
+    asConstant   = coerceArg pure
+    fromConstant = coerce
+
+-- Utils
+
+-- | Coerce the second argument to the result type of the first one. The motivation for this
+-- function is that it's often more annoying to explicitly specify a target type for 'coerce' than
+-- to construct an explicit coercion function, so this combinator can be used in cases like that.
+-- Plus the code reads better, as it becomes clear what and where gets wrapped/unwrapped.
+coerceVia :: Coercible a b => (a -> b) -> a -> b
+coerceVia _ = coerce
+{-# INLINE coerceVia #-}
+
+-- | Same as @\f -> f . coerce@, but does not create any closures and so is completely free.
+coerceArg :: Coercible a b => (a -> r) -> b -> r
+coerceArg = coerce
+{-# INLINE coerceArg #-}
 
 {- Note [Implementation of polymorphic built-in functions]
 Encoding polymorphism in an AST in an intrinsically-typed manner is not a pleasant thing to do in Haskell.

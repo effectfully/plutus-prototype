@@ -18,16 +18,12 @@ import PlutusCore.MkPlc
 import PlutusCore.Name
 import PlutusCore.Quote
 
-import Data.ByteString (ByteString)
-import PlutusCore.StdLib.Data.Integer
-import PlutusCore.StdLib.Data.Pair
-import PlutusCore.StdLib.Data.Unit
-
 -- | @Data@ as a built-in PLC type.
 dataTy :: uni `Contains` Data => Type TyName uni ()
 dataTy = mkTyBuiltin @_ @Data ()
 
 -- | Pattern matching over 'Data' inside PLC.
+-- TODO: fix
 --
 -- > \(d : data) ->
 -- >     /\(r :: *) ->
@@ -47,32 +43,12 @@ dataTy = mkTyBuiltin @_ @Data ()
 -- >               unitval
 caseData :: TermLike term TyName Name DefaultUni DefaultFun => term ()
 caseData = runQuote $ do
-    r       <- freshTyName "r"
-    fConstr <- freshName "fConstr"
-    fMap    <- freshName "fMap"
-    fList   <- freshName "fList"
-    fI      <- freshName "fI"
-    fB      <- freshName "fB"
-    d       <- freshName "d"
-    u       <- freshName "u"
-    let listData = mkTyBuiltin @_ @[Data] ()
+    d <- freshName "d"
+    r <- freshTyName "r"
+    -- TODO: well, we still want to be lazy, but since every constructor of 'Data' expects at least
+    -- one argument, we don't need to lazify them with @unit@.
     return
         . lamAbs () d dataTy
         . tyAbs () r (Type ())
-        . lamAbs () fConstr (TyFun () integer . TyFun () listData $ TyVar () r)
-        . lamAbs () fMap (TyFun () (mkTyBuiltin @_ @[(Data, Data)] ()) $ TyVar () r)
-        . lamAbs () fList (TyFun () listData $ TyVar () r)
-        . lamAbs () fI (TyFun () integer $ TyVar () r)
-        . lamAbs () fB (TyFun () (mkTyBuiltin @_ @ByteString ()) $ TyVar () r)
-        $ mkIterApp () (tyInst () (builtin () ChooseData) . TyFun () unit $ TyVar () r)
-            [ var () d
-            , lamAbs () u unit $ mkIterApp () (mkIterInst () uncurry [integer, listData, TyVar () r])
-                [ var () fConstr
-                , apply () (builtin () UnConstrData) $ var () d
-                ]
-            , lamAbs () u unit . apply () (var () fMap)  . apply () (builtin () UnMapData)  $ var () d
-            , lamAbs () u unit . apply () (var () fList) . apply () (builtin () UnListData) $ var () d
-            , lamAbs () u unit . apply () (var () fI)    . apply () (builtin () UnIData)    $ var () d
-            , lamAbs () u unit . apply () (var () fB)    . apply () (builtin () UnBData)    $ var () d
-            , unitval
-            ]
+        . apply () (tyInst () (builtin () CaseData) $ TyVar () r)
+        $ var () d

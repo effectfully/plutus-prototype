@@ -18,7 +18,7 @@ module PlutusCore.Builtin.KnownType
     , throwKnownTypeErrorWithCause
     , KnownBuiltinTypeIn
     , KnownBuiltinType
-    , Tree (..)
+    , NonEmpty (..)
     , MakeKnownM (..)
     , ReadKnownM
     , liftReadKnownM
@@ -31,7 +31,6 @@ module PlutusCore.Builtin.KnownType
     , readKnownSelf
     ) where
 
-import Data.Tree
 import PlutusCore.Builtin.Emitter
 import PlutusCore.Builtin.HasConstant
 import PlutusCore.Builtin.Polymorphism
@@ -40,9 +39,9 @@ import PlutusCore.Evaluation.Machine.Exception
 import PlutusCore.Evaluation.Result
 
 import Control.Monad.Except
-import Data.Coerce
 import Data.DList (DList)
 import Data.Either.Extras
+import Data.List.NonEmpty
 import Data.String
 import Data.Text (Text)
 import GHC.Exts (inline, oneShot)
@@ -290,11 +289,12 @@ the cause stored in it is not forced due to @Maybe@ being a lazy data type.
 
 -- See Note [Performance of ReadKnownIn and MakeKnownIn instances].
 class uni ~ UniOf val => MakeKnownIn uni val a where
+    -- TODO: use something strict, not 'NonEmpty'.
     -- See Note [Cause of failure].
     -- | Convert a Haskell value to the corresponding PLC val.
     -- The inverse of 'readKnown'.
-    makeKnown :: a -> MakeKnownM (Tree val)
-    default makeKnown :: KnownBuiltinType val a => a -> MakeKnownM (Tree val)
+    makeKnown :: a -> MakeKnownM (NonEmpty val)
+    default makeKnown :: KnownBuiltinType val a => a -> MakeKnownM (NonEmpty val)
     -- Everything on evaluation path has to be strict in production, so in theory we don't need to
     -- force anything here. In practice however all kinds of weird things happen in tests and @val@
     -- can be non-strict enough to cause trouble here, so we're forcing the argument. Looking at the
@@ -322,7 +322,7 @@ class uni ~ UniOf val => ReadKnownIn uni val a where
 type ReadKnown val = ReadKnownIn (UniOf val) val
 
 -- | Same as 'makeKnown', but allows for neither emitting nor storing the cause of a failure.
-makeKnownOrFail :: MakeKnownIn uni val a => a -> EvaluationResult (Tree val)
+makeKnownOrFail :: MakeKnownIn uni val a => a -> EvaluationResult (NonEmpty val)
 makeKnownOrFail x = case makeKnown x of
     MakeKnownFailure _ _           -> EvaluationFailure
     MakeKnownSuccess val           -> EvaluationSuccess val
@@ -375,24 +375,13 @@ instance HasConstantIn uni val => ReadKnownIn uni val (SomeConstant uni rep) whe
     {-# INLINE readKnown #-}
 
 instance uni ~ UniOf val => MakeKnownIn uni val (Opaque val rep) where
-    makeKnown = coerceArg $ pure . pure  -- A faster @pure . Opaque@.
+    makeKnown = coerceArg $ pure . pure  -- A faster @pure . pure . Opaque@.
+    {-# INLINE makeKnown #-}
+
+instance uni ~ UniOf val => MakeKnownIn uni val (Opaque (NonEmpty val) rep) where
+    makeKnown = coerceArg $ pure  -- A faster @pure . Opaque@.
     {-# INLINE makeKnown #-}
 
 instance uni ~ UniOf val => ReadKnownIn uni val (Opaque val rep) where
     readKnown = coerceArg pure  -- A faster @pure . Opaque@.
     {-# INLINE readKnown #-}
-
--- Utils
-
--- | Coerce the second argument to the result type of the first one. The motivation for this
--- function is that it's often more annoying to explicitly specify a target type for 'coerce' than
--- to construct an explicit coercion function, so this combinator can be used in cases like that.
--- Plus the code reads better, as it becomes clear what and where gets wrapped/unwrapped.
-coerceVia :: Coercible a b => (a -> b) -> a -> b
-coerceVia _ = coerce
-{-# INLINE coerceVia #-}
-
--- | Same as @\f -> f . coerce@, but does not create any closures and so is completely free.
-coerceArg :: Coercible a b => (a -> r) -> b -> r
-coerceArg = coerce
-{-# INLINE coerceArg #-}

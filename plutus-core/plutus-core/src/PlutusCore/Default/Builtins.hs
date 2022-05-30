@@ -19,6 +19,7 @@ import PlutusCore.Builtin
 import PlutusCore.Data
 import PlutusCore.Default.Universe
 import PlutusCore.Evaluation.Machine.BuiltinCostModel
+import PlutusCore.Evaluation.Machine.ExBudget
 import PlutusCore.Evaluation.Machine.ExMemory
 import PlutusCore.Evaluation.Result
 import PlutusCore.Pretty
@@ -86,6 +87,7 @@ data DefaultFun
     | SndPair
     -- Lists
     | ChooseList
+    | CaseList
     | MkCons
     | HeadList
     | TailList
@@ -95,6 +97,7 @@ data DefaultFun
     -- constructors to get pattern matching over it and we may end up having multiple such data
     -- types, hence we include the name of the data type as a suffix.
     | ChooseData
+    | CaseData
     | ConstrData
     | MapData
     | ListData
@@ -831,6 +834,9 @@ So overall one needs to be very careful when defining built-in functions that ha
 'Opaque' and 'SomeConstant' arguments. Expressiveness doesn't come for free.
 -}
 
+headSpine :: Opaque val ab -> [val] -> Opaque (NonEmpty val) b
+headSpine (Opaque f) xs = Opaque $ f :| xs
+
 instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
     type CostingPart uni DefaultFun = BuiltinCostModel
     -- Integers
@@ -1018,6 +1024,25 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
                 []    -> a
                 _ : _ -> b
           {-# INLINE choosePlc #-}
+    toBuiltinMeaning CaseList =
+        makeBuiltinMeaning
+            caseListPlc
+            (\_ _ _ _ -> ExBudget 1 0)  -- TODO.
+        where
+          caseListPlc
+              :: SomeConstant uni [a]
+              -> Opaque val b
+              -> Opaque val (a -> [a] -> b)
+              -> EvaluationResult (Opaque (NonEmpty val) b)
+          caseListPlc (SomeConstant (Some (ValueOf uniListA xs0))) z f = do
+            DefaultUniList uniA <- pure uniListA
+            pure $ case xs0 of
+                []     -> headSpine z []
+                x : xs -> headSpine f
+                    [ fromConstant $ someValueOf uniA x
+                    , fromConstant $ someValueOf uniListA xs
+                    ]
+          {-# INLINE caseListPlc #-}
     toBuiltinMeaning MkCons =
         makeBuiltinMeaning
             consPlc
@@ -1084,6 +1109,27 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
                     I      {} -> xI
                     B      {} -> xB)
             (runCostingFunSixArguments . paramChooseData)
+
+    toBuiltinMeaning CaseData =
+        makeBuiltinMeaning
+            caseDataPlc
+            (\_ _ _ _ _ _ _ -> ExBudget 1 0)  -- TODO.
+        where
+          caseDataPlc
+              :: Data
+              -> Opaque val (Integer -> [Data] -> b)
+              -> Opaque val ([(Data, Data)] -> b)
+              -> Opaque val ([Data] -> b)
+              -> Opaque val (Integer -> b)
+              -> Opaque val (BS.ByteString -> b)
+              -> Opaque (NonEmpty val) b
+          caseDataPlc d fConstr fMap fList fI fB = case d of
+              Constr i ds -> headSpine fConstr [fromValue i, fromValue ds]
+              Map es      -> headSpine fMap [fromValue es]
+              List ds     -> headSpine fList [fromValue ds]
+              I i         -> headSpine fI [fromValue i]
+              B b         -> headSpine fB [fromValue b]
+          {-# INLINE caseDataPlc #-}
     toBuiltinMeaning ConstrData =
         makeBuiltinMeaning
             Constr
@@ -1243,6 +1289,8 @@ instance Flat DefaultFun where
               MkNilData                       -> 49
               MkNilPairData                   -> 50
               SerialiseData                   -> 51
+              CaseList                        -> 54
+              CaseData                        -> 55
 
     decode = go =<< decodeBuiltin
         where go 0  = pure AddInteger
@@ -1299,6 +1347,8 @@ instance Flat DefaultFun where
               go 51 = pure SerialiseData
               go 52 = pure VerifyEcdsaSecp256k1Signature
               go 53 = pure VerifySchnorrSecp256k1Signature
+              go 54 = pure CaseList
+              go 55 = pure CaseData
               go t  = fail $ "Failed to decode builtin tag, got: " ++ show t
 
     size _ n = n + builtinTagWidth

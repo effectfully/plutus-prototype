@@ -1,4 +1,4 @@
--- | The Term CEK machine.
+-- | The CEK machine.
 -- The CEK machine relies on variables having non-equal 'Unique's whenever they have non-equal
 -- string names. I.e. 'Unique's are used instead of string names. This is for efficiency reasons.
 -- The CEK machines handles name capture by design.
@@ -512,6 +512,7 @@ we can match on context and the top frame in a single, strict pattern match.
 data Context uni fun
     = FrameApplyFun !(CekValue uni fun) !(Context uni fun)                         -- ^ @[V _]@
     | FrameApplyArg !(CekValEnv uni fun) !(Term NamedDeBruijn uni fun ()) !(Context uni fun) -- ^ @[_ N]@
+    | FrameApplyArgVal !(CekValue uni fun) !(Context uni fun)
     | FrameForce !(Context uni fun)                                               -- ^ @(force _)@
     | NoFrame
     deriving stock (Show)
@@ -558,6 +559,9 @@ lookupVarName varName@(NamedDeBruijn _ varIx) varEnv =
             var = Var () varName
         Just val -> pure val
 
+extendContext :: [CekValue uni fun] -> Context uni fun -> Context uni fun
+extendContext args ctx = foldr FrameApplyArgVal ctx args
+
 -- See Note [Compilation peculiarities].
 -- | The entering point to the CEK machine's engine.
 enterComputeCek
@@ -568,12 +572,19 @@ enterComputeCek
     -> Term NamedDeBruijn uni fun ()
     -> CekM uni fun s (Term NamedDeBruijn uni fun ())
 enterComputeCek = computeCek (toWordArray 0) where
+    returnCekNonEmpty
+        :: WordArray
+        -> Context uni fun
+        -> NonEmpty (CekValue uni fun)
+        -> CekM uni fun s (Term NamedDeBruijn uni fun ())
+    returnCekNonEmpty unbudgetedSteps ctx (f :| xs) =
+        returnCek unbudgetedSteps (extendContext xs ctx) f
+
     -- | Take pieces of a possibly partial builtin application and either create a 'CekValue' using
     -- 'makeKnown' or a partial builtin application depending on whether the built-in function is
     -- fully saturated or not.
     evalBuiltinApp
-        :: (GivenCekReqs uni fun s, PrettyUni uni fun)
-        => WordArray
+        :: WordArray
         -> Context uni fun
         -> fun
         -> Term NamedDeBruijn uni fun ()
@@ -586,12 +597,11 @@ enterComputeCek = computeCek (toWordArray 0) where
                 MakeKnownFailure logs err       -> do
                     ?cekEmitter logs
                     throwKnownTypeErrorWithCause term err
-                MakeKnownSuccess r              -> case r of
-                    Node x []     -> returnCek unbudgetedSteps ctx x
-                    Node f (x:xs) -> applyEvaluate unbudgetedSteps ctx f x xs
-                MakeKnownSuccessWithLogs logs r -> ?cekEmitter logs *> case r of
-                    Node x [] -> returnCek unbudgetedSteps ctx x
-                    Node _ _  -> error "not yet"
+                MakeKnownSuccess r              ->
+                    returnCekNonEmpty unbudgetedSteps ctx r
+                MakeKnownSuccessWithLogs logs r -> do
+                    ?cekEmitter logs
+                    returnCekNonEmpty unbudgetedSteps ctx r
         _ -> returnCek unbudgetedSteps ctx $ VBuiltin fun term runtime
     {-# INLINE evalBuiltinApp #-}
 
@@ -665,10 +675,12 @@ enterComputeCek = computeCek (toWordArray 0) where
     -- s , [_ (M,ρ)] ◅ V  ↦  s , [V _] ; ρ ▻ M
     returnCek !unbudgetedSteps (FrameApplyArg argVarEnv arg ctx) fun =
         computeCek unbudgetedSteps (FrameApplyFun fun ctx) argVarEnv arg
+    returnCek !unbudgetedSteps (FrameApplyArgVal arg ctx) fun =
+        applyEvaluate unbudgetedSteps ctx fun arg
     -- s , [(lam x (M,ρ)) _] ◅ V  ↦  s ; ρ [ x  ↦  V ] ▻ M
     -- FIXME: add rule for VBuiltin once it's in the specification.
     returnCek !unbudgetedSteps (FrameApplyFun fun ctx) arg =
-        applyEvaluate unbudgetedSteps ctx fun (pure arg) []
+        applyEvaluate unbudgetedSteps ctx fun arg
 
     -- | @force@ a term and proceed.
     -- If v is a delay then compute the body of v;
@@ -710,14 +722,13 @@ enterComputeCek = computeCek (toWordArray 0) where
         :: WordArray
         -> Context uni fun
         -> CekValue uni fun
-        -> Tree (CekValue uni fun)
-        -> [Tree (CekValue uni fun)]
+        -> CekValue uni fun
         -> CekM uni fun s (Term NamedDeBruijn uni fun ())
-    applyEvaluate !unbudgetedSteps !ctx (VLamAbs _ body env) arg rest =
+    applyEvaluate !unbudgetedSteps !ctx (VLamAbs _ body env) arg =
         computeCek unbudgetedSteps ctx (Env.cons arg env) body
     -- Annotating @f@ and @exF@ with bangs gave us some speed-up, but only until we added a bang to
     -- 'VCon'. After that the bangs here were making things a tiny bit slower and so we removed them.
-    applyEvaluate !unbudgetedSteps !ctx (VBuiltin fun term (BuiltinRuntime sch f exF)) arg rest = do
+    applyEvaluate !unbudgetedSteps !ctx (VBuiltin fun term (BuiltinRuntime sch f exF)) arg = do
         let argTerm = dischargeCekValue arg
             -- @term@ and @argTerm@ are fully discharged, and so @term'@ is, hence we can put it
             -- in a 'VBuiltin'.
@@ -735,7 +746,7 @@ enterComputeCek = computeCek (toWordArray 0) where
                     evalBuiltinApp unbudgetedSteps ctx fun term' runtime'
             _ ->
                 throwingWithCause _MachineError UnexpectedBuiltinTermArgumentMachineError (Just term')
-    applyEvaluate !_ !_ val _ _ =
+    applyEvaluate !_ !_ val _ =
         throwingDischarged _MachineError NonFunctionalApplicationMachineError val
 
     -- | Spend the budget that has been accumulated for a number of machine steps.
