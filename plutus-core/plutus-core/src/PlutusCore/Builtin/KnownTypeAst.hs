@@ -13,8 +13,7 @@
 {-# LANGUAGE StrictData               #-}
 
 module PlutusCore.Builtin.KnownTypeAst
-    ( Budgeting (..)
-    , TyNameRep (..)
+    ( TyNameRep (..)
     , TyVarRep
     , TyAppRep
     , TyForallRep
@@ -30,7 +29,6 @@ import PlutusCore.Builtin.Emitter
 import PlutusCore.Builtin.KnownKind
 import PlutusCore.Builtin.Polymorphism
 import PlutusCore.Core
-import PlutusCore.Evaluation.Machine.ExBudget
 import PlutusCore.Evaluation.Result
 import PlutusCore.MkPlc hiding (error)
 import PlutusCore.Name
@@ -190,13 +188,6 @@ class KnownTypeAst uni x where
     toTypeAst :: proxy x -> Type TyName uni ()
     default toTypeAst :: KnownBuiltinTypeAst uni x => proxy x -> Type TyName uni ()
     toTypeAst _ = toTypeAst $ Proxy @(ElaborateBuiltin x)
-    {-# INLINE toTypeAst #-}
-
-instance KnownTypeAst uni a => KnownTypeAst uni (Budgeting a) where
-    type IsBuiltin (Budgeting a) = 'False
-    type ToHoles (Budgeting a) = '[TypeHole a]
-    type ToBinds (Budgeting a) = ToBinds a
-    toTypeAst _ = toTypeAst (Proxy @a)
     {-# INLINE toTypeAst #-}
 
 instance KnownTypeAst uni a => KnownTypeAst uni (EvaluationResult a) where
