@@ -51,7 +51,7 @@ import Test.Tasty.Hedgehog
 type DefaultFunExt = Either DefaultFun ExtensionFun
 
 defaultBuiltinCostModelExt :: CostingPart DefaultUni DefaultFunExt
-defaultBuiltinCostModelExt = (defaultBuiltinCostModel, ())
+defaultBuiltinCostModelExt = (defaultBuiltinCostModel, defaultBuiltinCostModel)
 
 -- | Check that 'Factorial' from the above computes to the same thing as
 -- a factorial defined in PLC itself.

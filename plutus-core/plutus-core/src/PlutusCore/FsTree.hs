@@ -14,6 +14,7 @@ module PlutusCore.FsTree
     , plcTypeFile
     , plcTermFile
     , foldFsTree
+    , foldFolderContents
     , foldPlcFsTree
     , foldPlcFolderContents
     ) where
@@ -63,8 +64,25 @@ foldFsTree
     -> FsTree a
     -> b
 foldFsTree onFolder onFile = go where
-    go (FsFolder name (FolderContents trees)) = onFolder name $ map go trees
-    go (FsFile name x)                        = onFile name x
+    go (FsFolder name contents) = onFolder name $ foldFolderContents onFolder onFile contents
+    go (FsFile name x)          = onFile name x
+
+-- | Fold a 'FolderContents'.
+foldFolderContents
+    :: (String -> [b] -> b)  -- ^ What to do on a folder.
+    -> (String -> a -> b)    -- ^ What to do on a single file in a folder.
+    -> FolderContents a
+    -> [b]
+foldFolderContents onFolder onFile = map (foldFsTree onFolder onFile) . unFolderContents
+
+onPlcFile
+    :: (String -> Type TyName uni () -> b)
+    -> (String -> Term TyName Name uni fun () -> b)
+    -> String
+    -> PlcEntity uni fun
+    -> b
+onPlcFile onType _      name (PlcType ty)   = onType name ty
+onPlcFile _      onTerm name (PlcTerm term) = onTerm name term
 
 -- | Fold a 'PlcFsTree'.
 foldPlcFsTree
@@ -73,9 +91,7 @@ foldPlcFsTree
     -> (String -> Term TyName Name uni fun () -> b)  -- ^ What to do on a term.
     -> PlcFsTree uni fun
     -> b
-foldPlcFsTree onFolder onType onTerm = foldFsTree onFolder onFile where
-    onFile name (PlcType getTy)   = onType name getTy
-    onFile name (PlcTerm getTerm) = onTerm name getTerm
+foldPlcFsTree onFolder onType onTerm = foldFsTree onFolder $ onPlcFile onType onTerm
 
 -- | Fold the contents of a PLC folder.
 foldPlcFolderContents
@@ -84,5 +100,4 @@ foldPlcFolderContents
     -> (String -> Term TyName Name uni fun () -> b)  -- ^ What to do on a term.
     -> PlcFolderContents uni fun
     -> [b]
-foldPlcFolderContents onFolder onType onTerm (FolderContents trees) =
-    map (foldPlcFsTree onFolder onType onTerm) trees
+foldPlcFolderContents onFolder onType onTerm = foldFolderContents onFolder $ onPlcFile onType onTerm

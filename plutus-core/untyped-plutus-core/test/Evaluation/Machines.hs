@@ -1,6 +1,7 @@
 -- editorconfig-checker-disable-file
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies     #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE TypeFamilies      #-}
 
 module Evaluation.Machines
     ( test_machines
@@ -112,21 +113,78 @@ bunchOfIfThenElseNats =
                 $ mkIterApp () (tyInst () (builtin () IfThenElse) $ Plc.TyFun () Plc.natTy Plc.natTy)
                     [mkConstant () $ even n, idN, idN]
 
+mutateList
+    :: Term Name DefaultUni (Either DefaultFun ExtensionFun) ()
+    -> Term Name DefaultUni (Either DefaultFun ExtensionFun) ()
+mutateList mut
+    = Apply () (Force () . Builtin () $ Left NullList)
+    $ mkIterApp () (Force () Plc.foldNat)
+        [ mut
+        , mkConstant () [()]
+        , metaIntegerToNat 15000
+        ]
+
+-- \xs -> force mkCons xs (force mkNilMatrix xs)
+growType :: Term Name DefaultUni (Either DefaultFun ExtensionFun) ()
+growType = Plc.runQuote $ do
+    xs <- Plc.freshName "xs"
+    return
+        . LamAbs () xs
+        $ mkIterApp () (Force () (Builtin () $ Left MkCons))
+            [ Var () xs
+            , Apply () (Force () . Builtin () $ Right MkNilMatrix) $ Var () xs
+            ]
+
+-- \xs -> force mkCons (force headList xs) xs
+growList :: Term Name DefaultUni (Either DefaultFun ExtensionFun) ()
+growList = Plc.runQuote $ do
+    xs <- Plc.freshName "xs"
+    return
+        . LamAbs () xs
+        $ mkIterApp () (Force () . Builtin () $ Left MkCons)
+            [ Apply () (Force () . Builtin () $ Left HeadList) $ Var () xs
+            , Var () xs
+            ]
+
+bunchOfMutateLists :: FolderContents (Term Name DefaultUni (Either DefaultFun ExtensionFun) ())
+bunchOfMutateLists =
+    FolderContents
+        [ treeFolderContents "MutateLists"
+            [ FsFile "grow" $ mutateList growType
+            , FsFile "keep" $ mutateList growList
+            ]
+        ]
+
+toBuiltinsRuntimeDef
+    :: ToBuiltinMeaning DefaultUni fun
+    => CostingPart DefaultUni fun
+    -> BuiltinsRuntime fun (CekValue DefaultUni fun)
+toBuiltinsRuntimeDef = toBuiltinsRuntime def Plc.defaultUnliftingMode
+
 test_budget :: TestTree
 test_budget
     = runTestNestedIn ["untyped-plutus-core", "test", "Evaluation", "Machines"]
     . testNested "Budget"
     $ concat
-        [ folder Plc.defaultBuiltinsRuntime bunchOfFibs
-        , folder (toBuiltinsRuntime def Plc.defaultUnliftingMode ()) bunchOfIdNats
-        , folder Plc.defaultBuiltinsRuntime bunchOfIfThenElseNats
+        [ typedFolder Plc.defaultBuiltinsRuntime bunchOfFibs
+        , typedFolder (toBuiltinsRuntimeDef Plc.defaultBuiltinCostModel) bunchOfIdNats
+        , typedFolder Plc.defaultBuiltinsRuntime bunchOfIfThenElseNats
+        , let runtime = toBuiltinsRuntimeDef
+                  ( Plc.defaultBuiltinCostModel
+                  , Plc.defaultBuiltinCostModel
+                  )
+          in untypedFolder runtime bunchOfMutateLists
         ]
   where
-    folder runtime =
+    typedFolder runtime =
         foldPlcFolderContents
             testNested
             (\name _ -> pure $ testGroup name [])
             (\name -> testBudget runtime name . eraseTerm)
+    untypedFolder runtime =
+        foldFolderContents
+            testNested
+            (testBudget runtime)
 
 testTallying :: TestName -> Term Name DefaultUni DefaultFun () -> TestNested
 testTallying name term =

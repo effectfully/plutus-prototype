@@ -1,0 +1,38 @@
+( (Right (False))
+, ({ tally: ({ BStep BConst causes ({ cpu: 23000
+| mem: 100
+})
+| BStep BVar causes ({ cpu: 5175230000
+| mem: 22501000
+})
+| BStep BLamAbs causes ({ cpu: 2760322000
+| mem: 12001400
+})
+| BStep BApply causes ({ cpu: 4830299000
+| mem: 21001300
+})
+| BStep BDelay causes ({ cpu: 690138000
+| mem: 3000600
+})
+| BStep BForce causes ({ cpu: 1380161000
+| mem: 6000700
+})
+| BStep BBuiltin causes ({ cpu: 690023000
+| mem: 3000100
+})
+| BBuiltinApp (Left MkCons) causes ({ cpu: 982395000
+| mem: 480000
+})
+| BBuiltinApp (Left HeadList) causes ({ cpu: 648735000
+| mem: 480000
+})
+| BBuiltinApp (Left NullList) causes ({ cpu: 60091
+| mem: 32
+})
+| BStartup causes ({ cpu: 100
+| mem: 100
+})})
+| budget: ({ cpu: 17157386191
+| mem: 68465332
+})
+}) )
