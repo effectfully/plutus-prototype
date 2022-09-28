@@ -19,6 +19,7 @@ module PlutusCore.Examples.Builtins where
 
 import PlutusCore
 import PlutusCore.Builtin
+import PlutusCore.Evaluation.Machine.BuiltinCostModel
 import PlutusCore.Evaluation.Machine.ExBudget
 import PlutusCore.Evaluation.Machine.Exception
 import PlutusCore.Pretty
@@ -28,7 +29,6 @@ import PlutusCore.StdLib.Data.ScottList qualified as Plc
 import Control.Exception
 import Data.Default.Class
 import Data.Either
-import Data.Hashable (Hashable)
 import Data.Kind qualified as GHC (Type)
 import Data.Proxy
 import Data.Tuple
@@ -123,6 +123,7 @@ data ExtensionFun
     | SwapEls  -- For checking that nesting polymorphic built-in types and instantiating them with
                -- a mix of monomorphic types and type variables works correctly.
     | ExtensionVersion -- Reflect the version of the Extension
+    | MkNilMatrix
     deriving stock (Show, Eq, Ord, Enum, Bounded, Ix, Generic)
     deriving anyclass (Hashable)
 
@@ -179,14 +180,16 @@ data BuiltinErrorCall = BuiltinErrorCall
 --    account automatically as well: just think that having @\x -> f x x@ as a PLC term is supposed
 --    to be handled correctly by design
 instance uni ~ DefaultUni => ToBuiltinMeaning uni ExtensionFun where
-    type CostingPart uni ExtensionFun = ()
+    -- Making it 'BuiltinCostModel' for testing purposes.
+    type CostingPart uni ExtensionFun = BuiltinCostModel
 
     data BuiltinVersion ExtensionFun = ExtensionFunV0 | ExtensionFunV1
 
-    toBuiltinMeaning :: forall val. HasMeaningIn uni val
-                     => BuiltinVersion ExtensionFun
-                     -> ExtensionFun
-                     -> BuiltinMeaning val ()
+    toBuiltinMeaning
+        :: forall val. HasMeaningIn uni val
+        => BuiltinVersion ExtensionFun
+        -> ExtensionFun
+        -> BuiltinMeaning val BuiltinCostModel
 
     toBuiltinMeaning _ver Factorial =
         makeBuiltinMeaning
@@ -381,6 +384,16 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni ExtensionFun where
                 ExtensionFunV1 -> 1
         )
         mempty  -- Whatever
+
+    toBuiltinMeaning _ver MkNilMatrix =
+        makeBuiltinMeaning
+            mkNilMatrixPlc
+            -- Reusing the costing of 'HeadList' for testing purposes.
+            (runCostingFunOneArgument . paramHeadList)
+      where
+        mkNilMatrixPlc :: SomeConstant uni [a] -> SomeConstant uni [[a]]
+        mkNilMatrixPlc (SomeConstant (Some (ValueOf uni _))) =
+            SomeConstant . Some $ ValueOf (DefaultUniList uni) []
 
 instance Default (BuiltinVersion ExtensionFun) where
     def = ExtensionFunV1
