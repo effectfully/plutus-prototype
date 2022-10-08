@@ -185,7 +185,7 @@ type NoStandalonePolymorphicDataErrMsg =
     'Text "  variables with either ‘SomeConstant’ or ‘Opaque’ depending on whether its the" ':$$:
     'Text "  type of an argument or the type of the result, respectively"
 
-instance TypeError NoStandalonePolymorphicDataErrMsg => uni `Contains` TyVarRep where
+instance TypeError NoStandalonePolymorphicDataErrMsg => uni `Contains` (TyVarRep name) where
     knownUni = underTypeError
 
 type NoConstraintsErrMsg =

@@ -3,22 +3,24 @@
 
 {-# OPTIONS -fno-warn-missing-pattern-synonym-signatures #-}
 
-{-# LANGUAGE BlockArguments        #-}
-{-# LANGUAGE ConstraintKinds       #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE InstanceSigs          #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE PatternSynonyms       #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE BlockArguments           #-}
+{-# LANGUAGE ConstraintKinds          #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE FlexibleInstances        #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE InstanceSigs             #-}
+{-# LANGUAGE LambdaCase               #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
+{-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE PatternSynonyms          #-}
+{-# LANGUAGE PolyKinds                #-}
+{-# LANGUAGE RankNTypes               #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TemplateHaskell          #-}
+{-# LANGUAGE TypeApplications         #-}
+{-# LANGUAGE TypeFamilies             #-}
+{-# LANGUAGE TypeOperators            #-}
+{-# LANGUAGE UndecidableInstances     #-}
 
 -- effectfully: to the best of my experimentation, -O2 here improves performance, however by
 -- inspecting GHC Core I was only able to see a difference in how the 'KnownTypeIn' instance for
@@ -30,7 +32,6 @@ module PlutusCore.Default.Universe
     , pattern DefaultUniList
     , pattern DefaultUniPair
     , module Export  -- Re-exporting universes infrastructure for convenience.
-    , noMoreTypeFunctions
     ) where
 
 import PlutusCore.Builtin
@@ -88,84 +89,91 @@ feature and have meta-constructors as built-in functions.
 
 -- See Note [Representing polymorphism].
 -- | The universe used by default.
-data DefaultUni a where
-    DefaultUniInteger    :: DefaultUni (Esc Integer)
-    DefaultUniByteString :: DefaultUni (Esc BS.ByteString)
-    DefaultUniString     :: DefaultUni (Esc Text.Text)
-    DefaultUniUnit       :: DefaultUni (Esc ())
-    DefaultUniBool       :: DefaultUni (Esc Bool)
-    DefaultUniProtoList  :: DefaultUni (Esc [])
-    DefaultUniProtoPair  :: DefaultUni (Esc (,))
-    DefaultUniApply      :: !(DefaultUni (Esc f)) -> !(DefaultUni (Esc a)) -> DefaultUni (Esc (f a))
-    DefaultUniData       :: DefaultUni (Esc Data)
+type DefaultUni :: Universe
+data DefaultUni f a where
+    DefaultUniInteger    :: DefaultUni f Integer
+    DefaultUniByteString :: DefaultUni f BS.ByteString
+    DefaultUniString     :: DefaultUni f Text.Text
+    DefaultUniUnit       :: DefaultUni f ()
+    DefaultUniBool       :: DefaultUni f Bool
+    DefaultUniList       :: f a -> DefaultUni f [a]
+    DefaultUniPair       :: f a -> f b -> DefaultUni f (a, b)
+    DefaultUniData       :: DefaultUni f Data
 
--- GHC infers crazy types for these two and the straightforward ones break pattern matching,
--- so we just leave GHC with its craziness.
-pattern DefaultUniList uniA =
-    DefaultUniProtoList `DefaultUniApply` uniA
-pattern DefaultUniPair uniA uniB =
-    DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB
+-- data DefaultUni f a where
+--     DefaultUniInteger    :: DefaultUni f Integer
+--     DefaultUniByteString :: DefaultUni f BS.ByteString
+--     DefaultUniString     :: DefaultUni f Text.Text
+--     DefaultUniUnit       :: DefaultUni f ()
+--     DefaultUniBool       :: DefaultUni f Bool
+--     DefaultUniList       :: f (DefaultUni f a) -> DefaultUni f [a]
+--     DefaultUniPair       :: f (DefaultUni f a) -> f (DefaultUni f b) -> DefaultUni f (a, b)
+--     DefaultUniData       :: DefaultUni f Data
 
-deriveGEq ''DefaultUni
-deriveGCompare ''DefaultUni
+-- type DefaultUni :: ((Type -> Type) -> Type -> Type) -> Type -> Type
 
--- | For pleasing the coverage checker.
-noMoreTypeFunctions :: DefaultUni (Esc (f :: a -> b -> c -> d)) -> any
-noMoreTypeFunctions (f `DefaultUniApply` _) = noMoreTypeFunctions f
+-- data DefaultUni f a where
+--     DefaultUniInteger    :: DefaultUni f Integer
+--     DefaultUniByteString :: DefaultUni f BS.ByteString
+--     DefaultUniString     :: DefaultUni f Text.Text
+--     DefaultUniUnit       :: DefaultUni f ()
+--     DefaultUniBool       :: DefaultUni f Bool
+--     DefaultUniList       :: f (DefaultUni f) a -> DefaultUni f [a]
+--     DefaultUniPair       :: f (DefaultUni f) a -> f (DefaultUni f) b -> DefaultUni f (a, b)
+--     DefaultUniData       :: DefaultUni f Data
 
-instance ToKind DefaultUni where
-    toSingKind DefaultUniInteger        = knownKind
-    toSingKind DefaultUniByteString     = knownKind
-    toSingKind DefaultUniString         = knownKind
-    toSingKind DefaultUniUnit           = knownKind
-    toSingKind DefaultUniBool           = knownKind
-    toSingKind DefaultUniProtoList      = knownKind
-    toSingKind DefaultUniProtoPair      = knownKind
-    toSingKind (DefaultUniApply uniF _) = case toSingKind uniF of _ `SingKindArrow` cod -> cod
-    toSingKind DefaultUniData           = knownKind
+-- deriveGEq ''DefaultUni
+-- deriveGCompare ''DefaultUni
 
-instance HasUniApply DefaultUni where
-    uniApply = DefaultUniApply
+-- -- | For pleasing the coverage checker.
+-- noMoreTypeFunctions :: DefaultUni (Esc (f :: a -> b -> c -> d)) -> any
+-- noMoreTypeFunctions (f `DefaultUniApply` _) = noMoreTypeFunctions f
 
-    matchUniApply (DefaultUniApply f a) _ h = h f a
-    matchUniApply _                     z _ = z
+-- instance ToKind DefaultUni where
+--     toSingKind DefaultUniInteger        = knownKind
+--     toSingKind DefaultUniByteString     = knownKind
+--     toSingKind DefaultUniString         = knownKind
+--     toSingKind DefaultUniUnit           = knownKind
+--     toSingKind DefaultUniBool           = knownKind
+--     toSingKind DefaultUniProtoList      = knownKind
+--     toSingKind DefaultUniProtoPair      = knownKind
+--     toSingKind (DefaultUniApply uniF _) = case toSingKind uniF of _ `SingKindArrow` cod -> cod
+--     toSingKind DefaultUniData           = knownKind
 
-deriving stock instance Show (DefaultUni a)
-instance GShow DefaultUni where gshowsPrec = showsPrec
+-- deriving stock instance Show (DefaultUni a)
+-- instance GShow DefaultUni where gshowsPrec = showsPrec
 
-instance HasRenderContext config => PrettyBy config (DefaultUni a) where
-    prettyBy = inContextM $ \case
-        DefaultUniInteger         -> "integer"
-        DefaultUniByteString      -> "bytestring"
-        DefaultUniString          -> "string"
-        DefaultUniUnit            -> "unit"
-        DefaultUniBool            -> "bool"
-        DefaultUniProtoList       -> "list"
-        DefaultUniProtoPair       -> "pair"
-        DefaultUniApply uniF uniA -> uniF `juxtPrettyM` uniA
-        DefaultUniData            -> "data"
+-- instance HasRenderContext config => PrettyBy config (DefaultUni a) where
+--     prettyBy = inContextM $ \case
+--         DefaultUniInteger         -> "integer"
+--         DefaultUniByteString      -> "bytestring"
+--         DefaultUniString          -> "string"
+--         DefaultUniUnit            -> "unit"
+--         DefaultUniBool            -> "bool"
+--         DefaultUniProtoList       -> "list"
+--         DefaultUniProtoPair       -> "pair"
+--         DefaultUniData            -> "data"
 
 -- | This always pretty-prints parens around type applications (e.g. @(list bool)@) and
 -- doesn't pretty-print them otherwise (e.g. @integer@).
 -- This is so we can have a single instance that is safe to use with both the classic and the
 -- readable pretty-printers, even though for the latter it may result in redundant parens being
 -- shown. We are planning to change the classic syntax to remove this silliness.
-instance Pretty (DefaultUni a) where
-    pretty = prettyBy $ RenderContext ToTheRight juxtFixity
+instance Pretty (DefaultUni f a) where
+    pretty = undefined -- prettyBy $ RenderContext ToTheRight juxtFixity
 instance Pretty (SomeTypeIn DefaultUni) where
     pretty (SomeTypeIn uni) = pretty uni
 
-instance DefaultUni `Contains` Integer       where knownUni = DefaultUniInteger
-instance DefaultUni `Contains` BS.ByteString where knownUni = DefaultUniByteString
-instance DefaultUni `Contains` Text.Text     where knownUni = DefaultUniString
-instance DefaultUni `Contains` ()            where knownUni = DefaultUniUnit
-instance DefaultUni `Contains` Bool          where knownUni = DefaultUniBool
-instance DefaultUni `Contains` []            where knownUni = DefaultUniProtoList
-instance DefaultUni `Contains` (,)           where knownUni = DefaultUniProtoPair
-instance DefaultUni `Contains` Data          where knownUni = DefaultUniData
-
-instance (DefaultUni `Contains` f, DefaultUni `Contains` a) => DefaultUni `Contains` f a where
-    knownUni = knownUni `DefaultUniApply` knownUni
+instance DefaultUni `Contains` Integer       where knownUni = TermLevel DefaultUniInteger
+instance DefaultUni `Contains` BS.ByteString where knownUni = TermLevel DefaultUniByteString
+instance DefaultUni `Contains` Text.Text     where knownUni = TermLevel DefaultUniString
+instance DefaultUni `Contains` ()            where knownUni = TermLevel DefaultUniUnit
+instance DefaultUni `Contains` Bool          where knownUni = TermLevel DefaultUniBool
+instance DefaultUni `Contains` a => DefaultUni `Contains` [a] where
+    knownUni = TermLevel $ DefaultUniList knownUni
+instance (DefaultUni `Contains` a, DefaultUni `Contains` b) => DefaultUni `Contains` (a, b) where
+    knownUni = TermLevel $ DefaultUniPair knownUni knownUni
+instance DefaultUni `Contains` Data          where knownUni = TermLevel DefaultUniData
 
 instance KnownBuiltinTypeAst DefaultUni Integer       => KnownTypeAst DefaultUni Integer
 instance KnownBuiltinTypeAst DefaultUni BS.ByteString => KnownTypeAst DefaultUni BS.ByteString
@@ -341,48 +349,50 @@ instance Closed DefaultUni where
         , constr `Permits` Data
         )
 
-    -- See Note [Stable encoding of tags].
-    -- IF YOU'RE GETTING A WARNING HERE, DON'T FORGET TO AMEND 'withDecodedUni' RIGHT BELOW.
-    encodeUni DefaultUniInteger           = [0]
-    encodeUni DefaultUniByteString        = [1]
-    encodeUni DefaultUniString            = [2]
-    encodeUni DefaultUniUnit              = [3]
-    encodeUni DefaultUniBool              = [4]
-    encodeUni DefaultUniProtoList         = [5]
-    encodeUni DefaultUniProtoPair         = [6]
-    encodeUni (DefaultUniApply uniF uniA) = 7 : encodeUni uniF ++ encodeUni uniA
-    encodeUni DefaultUniData              = [8]
+    -- -- See Note [Stable encoding of tags].
+    -- -- IF YOU'RE GETTING A WARNING HERE, DON'T FORGET TO AMEND 'withDecodedUni' RIGHT BELOW.
+    -- encodeUni DefaultUniInteger           = [0]
+    -- encodeUni DefaultUniByteString        = [1]
+    -- encodeUni DefaultUniString            = [2]
+    -- encodeUni DefaultUniUnit              = [3]
+    -- encodeUni DefaultUniBool              = [4]
+    -- encodeUni DefaultUniProtoList         = [5]
+    -- encodeUni DefaultUniProtoPair         = [6]
+    -- encodeUni (DefaultUniApply uniF uniA) = 7 : encodeUni uniF ++ encodeUni uniA
+    -- encodeUni DefaultUniData              = [8]
 
-    -- See Note [Decoding universes].
-    -- See Note [Stable encoding of tags].
-    withDecodedUni k = peelUniTag >>= \case
-        0 -> k DefaultUniInteger
-        1 -> k DefaultUniByteString
-        2 -> k DefaultUniString
-        3 -> k DefaultUniUnit
-        4 -> k DefaultUniBool
-        5 -> k DefaultUniProtoList
-        6 -> k DefaultUniProtoPair
-        7 ->
-            withDecodedUni @DefaultUni $ \uniF ->
-                withDecodedUni @DefaultUni $ \uniA ->
-                    withApplicable uniF uniA $
-                        k $ uniF `DefaultUniApply` uniA
-        8 -> k DefaultUniData
-        _ -> empty
+    -- -- See Note [Decoding universes].
+    -- -- See Note [Stable encoding of tags].
+    -- withDecodedUni k = peelUniTag >>= \case
+    --     0 -> k DefaultUniInteger
+    --     1 -> k DefaultUniByteString
+    --     2 -> k DefaultUniString
+    --     3 -> k DefaultUniUnit
+    --     4 -> k DefaultUniBool
+    --     5 -> k DefaultUniProtoList
+    --     6 -> k DefaultUniProtoPair
+    --     7 ->
+    --         withDecodedUni @DefaultUni $ \uniF ->
+    --             withDecodedUni @DefaultUni $ \uniA ->
+    --                 withApplicable uniF uniA $
+    --                     k $ uniF `DefaultUniApply` uniA
+    --     8 -> k DefaultUniData
+    --     _ -> empty
 
     bring
         :: forall constr a r proxy. DefaultUni `Everywhere` constr
-        => proxy constr -> DefaultUni (Esc a) -> (constr a => r) -> r
-    bring _ DefaultUniInteger    r = r
-    bring _ DefaultUniByteString r = r
-    bring _ DefaultUniString     r = r
-    bring _ DefaultUniUnit       r = r
-    bring _ DefaultUniBool       r = r
-    bring p (DefaultUniProtoList `DefaultUniApply` uniA) r =
-        bring p uniA r
-    bring p (DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB) r =
-        bring p uniA $ bring p uniB r
-    bring _ (f `DefaultUniApply` _ `DefaultUniApply` _ `DefaultUniApply` _) _ =
-        noMoreTypeFunctions f
-    bring _ DefaultUniData r = r
+        => proxy constr -> TermLevel DefaultUni a -> (constr a => r) -> r
+    bring p (TermLevel uni) = go uni where
+        go :: DefaultUni (TermLevel DefaultUni) a' -> (constr a' => r) -> r
+        go  DefaultUniInteger     r = r
+    -- bring _ DefaultUniByteString r = r
+    -- bring _ DefaultUniString     r = r
+    -- bring _ DefaultUniUnit       r = r
+    -- bring _ DefaultUniBool       r = r
+    -- bring p (DefaultUniProtoList `DefaultUniApply` uniA) r =
+    --     bring p uniA r
+    -- bring p (DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB) r =
+    --     bring p uniA $ bring p uniB r
+    -- bring _ (f `DefaultUniApply` _ `DefaultUniApply` _ `DefaultUniApply` _) _ =
+    --     noMoreTypeFunctions f
+    -- bring _ DefaultUniData r = r

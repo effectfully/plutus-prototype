@@ -1,5 +1,6 @@
 -- editorconfig-checker-disable-file
 {-# LANGUAGE ConstraintKinds          #-}
+{-# LANGUAGE DataKinds                #-}
 {-# LANGUAGE DeriveAnyClass           #-}
 {-# LANGUAGE DerivingVia              #-}
 {-# LANGUAGE FlexibleInstances        #-}
@@ -65,7 +66,7 @@ data Kind ann
     deriving anyclass (NFData, Hashable)
 
 -- | A 'Type' assigned to expressions.
-type Type :: GHC.Type -> (GHC.Type -> GHC.Type) -> GHC.Type -> GHC.Type
+type Type :: GHC.Type -> Universe -> GHC.Type -> GHC.Type
 data Type tyname uni ann
     = TyVar ann tyname
     | TyFun ann (Type tyname uni ann) (Type tyname uni ann)
@@ -133,7 +134,7 @@ data Program tyname name uni fun ann = Program
 makeLenses ''Program
 
 -- | Extract the universe from a type.
-type family UniOf a :: GHC.Type -> GHC.Type
+type family UniOf a :: Universe
 
 type instance UniOf (Term tyname name uni fun ann) = uni
 

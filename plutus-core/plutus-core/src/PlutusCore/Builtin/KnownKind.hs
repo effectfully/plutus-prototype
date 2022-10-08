@@ -39,9 +39,9 @@ instance (KnownKind dom, KnownKind cod) => KnownKind (dom -> cod) where
 -- with the simplest option for now and it's to have a class. Providing an instance per universe is
 -- no big deal.
 -- | For computing the Plutus kind of a built-in type. See 'kindOfBuiltinType'.
-class ToKind (uni :: GHC.Type -> GHC.Type) where
+class ToKind (uni :: Universe) where
     -- | Reify the kind of a type from the universe at the term level.
-    toSingKind :: uni (Esc (a :: k)) -> SingKind k
+    toSingKind :: TypeLevel uni a -> SingKind k
 
 -- | Convert a reified Haskell kind to a Plutus kind.
 demoteKind :: SingKind k -> Kind ()
@@ -49,5 +49,5 @@ demoteKind SingType                = Type ()
 demoteKind (SingKindArrow dom cod) = KindArrow () (demoteKind dom) (demoteKind cod)
 
 -- | Compute the kind of a type from a universe.
-kindOfBuiltinType :: ToKind uni => uni (Esc a) -> Kind ()
+kindOfBuiltinType :: ToKind uni => TypeLevel uni a -> Kind ()
 kindOfBuiltinType = demoteKind . toSingKind

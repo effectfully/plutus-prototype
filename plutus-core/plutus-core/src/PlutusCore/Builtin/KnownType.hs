@@ -52,7 +52,7 @@ import Universe
 -- | A constraint for \"@a@ is a 'ReadKnownIn' and 'MakeKnownIn' by means of being included
 -- in @uni@\".
 type KnownBuiltinTypeIn uni val a =
-    (HasConstantIn uni val, Pretty (SomeTypeIn uni), GEq uni, uni `Contains` a)
+    (HasConstantIn uni val, Pretty (SomeTypeIn uni), uni `Contains` a)
 
 -- | A constraint for \"@a@ is a 'ReadKnownIn' and 'MakeKnownIn' by means of being included
 -- in @UniOf term@\".
@@ -248,19 +248,19 @@ throwKnownTypeErrorWithCause cause = \case
     KnownTypeUnliftingError unlErr -> throwingWithCause _UnliftingError unlErr $ Just cause
     KnownTypeEvaluationFailure     -> throwingWithCause _EvaluationFailure () $ Just cause
 
-typeMismatchError
-    :: Pretty (SomeTypeIn uni)
-    => uni (Esc a)
-    -> uni (Esc b)
-    -> UnliftingError
-typeMismatchError uniExp uniAct = fromString $ concat
-    [ "Type mismatch: "
-    , "expected: " ++ display (SomeTypeIn uniExp)
-    , "; actual: " ++ display (SomeTypeIn uniAct)
-    ]
--- Just for tidier Core to get generated, we don't care about performance here, since it's just a
--- failure message and evaluation is about to be shut anyway.
-{-# NOINLINE typeMismatchError #-}
+-- typeMismatchError
+--     :: Pretty (SomeTypeIn uni)
+--     => uni (Esc a)
+--     -> uni (Esc b)
+--     -> UnliftingError
+-- typeMismatchError uniExp uniAct = fromString $ concat
+--     [ "Type mismatch: "
+--     , "expected: " ++ display (SomeTypeIn uniExp)
+--     , "; actual: " ++ display (SomeTypeIn uniAct)
+--     ]
+-- -- Just for tidier Core to get generated, we don't care about performance here, since it's just a
+-- -- failure message and evaluation is about to be shut anyway.
+-- {-# NOINLINE typeMismatchError #-}
 
 -- | The monad that 'makeKnown' runs in.
 -- Equivalent to @ExceptT KnownTypeError Emitter@, except optimized in two ways:
@@ -347,13 +347,14 @@ readKnownConstant :: forall val a. KnownBuiltinType val a => val -> ReadKnownM a
 -- Note [Performance of ReadKnownIn and MakeKnownIn instances]
 readKnownConstant val = asConstant val >>= oneShot \case
     Some (ValueOf uniAct x) -> do
-        let uniExp = knownUni @_ @(UniOf val) @a
+        let uniExp = knownUni @(UniOf val) @a
         -- 'geq' matches on its first argument first, so we make the type tag that will be known
         -- statically (because this function will be inlined) go first in order for GHC to
         -- optimize some of the matching away.
-        case uniExp `geq` uniAct of
-            Just Refl -> pure x
-            Nothing   -> Left . KnownTypeUnliftingError $ typeMismatchError uniExp uniAct
+        undefined
+        -- case uniExp `geq` uniAct of
+        --     Just Refl -> pure x
+        --     Nothing   -> Left . KnownTypeUnliftingError $ typeMismatchError uniExp uniAct
 {-# INLINE readKnownConstant #-}
 
 -- See Note [Performance of ReadKnownIn and MakeKnownIn instances].

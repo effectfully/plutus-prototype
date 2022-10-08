@@ -92,7 +92,7 @@ instance
             sexp "unwrap" (consAnnIf config ann [prettyBy config t])
       where
         prettyTypeOf :: Pretty (SomeTypeIn t) => Some (ValueOf t) -> Doc dann
-        prettyTypeOf (Some (ValueOf uni _ )) = pretty $ SomeTypeIn uni
+        prettyTypeOf (Some (ValueOf uni _ )) = undefined -- pretty $ SomeTypeIn uni
 
 instance (PrettyClassicBy configName (Term tyname name uni fun ann), Pretty ann) =>
         PrettyBy (PrettyConfigClassic configName) (Program tyname name uni fun ann) where

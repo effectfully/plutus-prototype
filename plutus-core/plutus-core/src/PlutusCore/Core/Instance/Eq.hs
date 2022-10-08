@@ -22,36 +22,36 @@ import PlutusCore.Rename.Monad
 
 import Universe
 
-instance (GEq uni, Eq ann) => Eq (Type TyName uni ann) where
+instance (Eq ann) => Eq (Type TyName uni ann) where
     ty1 == ty2 = runEqRename @TypeRenaming $ eqTypeM ty1 ty2
 
 instance
-        ( GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann
+        ( Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann
         ) => Eq (Term TyName Name uni fun ann) where
     term1 == term2 = runEqRename $ eqTermM term1 term2
 
--- Simple Structural Equality of a `Term NamedDeBruijn`. This implies three things:
--- b) We do not do equality "modulo starting index". E.g. `LamAbs 0 (Var 0) /= LamAbs 1 (Var 1)`.
--- c) We do not do equality ""modulo annotations".
--- Note that we ignore the name part in case of the nameddebruijn
--- If a user wants to ignore annotations he must prior do `void <$> term`, to throw away any annotations.
-deriving stock instance
-   (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
-   Eq (Term NamedTyDeBruijn NamedDeBruijn uni fun ann)
+-- -- Simple Structural Equality of a `Term NamedDeBruijn`. This implies three things:
+-- -- b) We do not do equality "modulo starting index". E.g. `LamAbs 0 (Var 0) /= LamAbs 1 (Var 1)`.
+-- -- c) We do not do equality ""modulo annotations".
+-- -- Note that we ignore the name part in case of the nameddebruijn
+-- -- If a user wants to ignore annotations he must prior do `void <$> term`, to throw away any annotations.
+-- deriving stock instance
+--    (Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
+--    Eq (Term NamedTyDeBruijn NamedDeBruijn uni fun ann)
+
+-- deriving stock instance
+--    (Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
+--    Eq (Term TyDeBruijn DeBruijn uni fun ann)
 
 deriving stock instance
-   (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
-   Eq (Term TyDeBruijn DeBruijn uni fun ann)
-
-deriving stock instance
-   (GEq uni, Closed uni, uni `Everywhere` Eq, Eq ann) =>
+   (Closed uni, uni `Everywhere` Eq, Eq ann) =>
    Eq (Type NamedTyDeBruijn uni ann)
 
 deriving stock instance
-   (GEq uni, Closed uni, uni `Everywhere` Eq, Eq ann) =>
+   (Closed uni, uni `Everywhere` Eq, Eq ann) =>
    Eq (Type TyDeBruijn uni ann)
 
-deriving stock instance (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann,
+deriving stock instance (Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann,
                   Eq (Term tyname name uni fun ann)
                   ) =>  Eq (Program tyname name uni fun ann)
 
@@ -62,7 +62,7 @@ type EqRenameOf ren a = HasUniques a => a -> a -> EqRename ren
 -- See Note [Side tracking]
 -- See Note [No catch-all].
 -- | Check equality of two 'Type's.
-eqTypeM :: (HasRenaming ren TypeUnique, GEq uni, Eq ann) => EqRenameOf ren (Type tyname uni ann)
+eqTypeM :: (HasRenaming ren TypeUnique, Eq ann) => EqRenameOf ren (Type tyname uni ann)
 eqTypeM (TyVar ann1 name1) (TyVar ann2 name2) = do
     eqM ann1 ann2
     eqNameM name1 name2
@@ -103,7 +103,7 @@ eqTypeM TyBuiltin{} _ = empty
 -- See Note [No catch-all].
 -- | Check equality of two 'Term's.
 eqTermM
-    :: (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann)
+    :: (Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann)
     => EqRenameOf ScopedRenaming (Term tyname name uni fun ann)
 eqTermM (LamAbs ann1 name1 ty1 body1) (LamAbs ann2 name2 ty2 body2) = do
     eqM ann1 ann2
@@ -137,7 +137,7 @@ eqTermM (Var ann1 name1) (Var ann2 name2) = do
     eqNameM name1 name2
 eqTermM (Constant ann1 con1) (Constant ann2 con2) = do
     eqM ann1 ann2
-    eqM con1 con2
+    undefined -- eqM con1 con2
 eqTermM (Builtin ann1 bi1) (Builtin ann2 bi2) = do
     eqM ann1 ann2
     eqM bi1 bi2

@@ -165,7 +165,7 @@ type family ElaborateBuiltin a where
 -- | A constraint for \"@a@ is a 'KnownTypeAst' by means of being included in @uni@\".
 type KnownBuiltinTypeAst uni a = KnownTypeAst uni (ElaborateBuiltin a)
 
-type KnownTypeAst :: forall a. (GHC.Type -> GHC.Type) -> a -> GHC.Constraint
+type KnownTypeAst :: forall a. Universe -> a -> GHC.Constraint
 class KnownTypeAst uni x where
     -- | Whether @x@ is a built-in type.
     type IsBuiltin x :: Bool
@@ -229,7 +229,7 @@ instance uni `Contains` f => KnownTypeAst uni (BuiltinHead f) where
     type IsBuiltin (BuiltinHead f) = 'True
     type ToHoles (BuiltinHead f) = '[]
     type ToBinds (BuiltinHead f) = '[]
-    toTypeAst _ = mkTyBuiltin @_ @f ()
+    toTypeAst _ = undefined -- mkTyBuiltin @_ @f ()
     {-# INLINE toTypeAst #-}
 
 instance (KnownTypeAst uni a, KnownTypeAst uni b) => KnownTypeAst uni (a -> b) where
