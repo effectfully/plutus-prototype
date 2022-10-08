@@ -342,17 +342,20 @@ type TypeLevel uni = uni NoArg
 --     { unTypeLevel :: uni NoArg a
 --     }
 
-type TermLevel :: Universe -> Type -> Type
-newtype TermLevel uni a = TermLevel
-    { unTermLevel :: uni (TermLevel uni) a
+type Arg :: Type -> Type
+newtype Arg a = Arg
+    { unArg :: a
     }
+
+type TermLevel :: Universe -> Type -> Type
+type TermLevel uni = uni Arg
 
 -- hoistTermLevel :: (forall f a. uni f a -> uni' f a) -> TermLevel uni a -> TermLevel uni' a
 -- hoistTermLevel f (TermLevel
 
 -- | A particular type from a universe.
-type SomeTypeIn :: Universe -> Type
-data SomeTypeIn uni = forall a. SomeTypeIn !(TypeLevel uni a)
+type SomeTypeIn :: (Type -> Type) -> Universe -> Type
+data SomeTypeIn f uni = forall a. SomeTypeIn !(uni f a)
 
 -- | A value of a particular type from a universe.
 type ValueOf :: Universe -> Type -> Type
@@ -431,7 +434,7 @@ knownUniOf :: uni `Contains` a => proxy a -> TermLevel uni a
 knownUniOf _ = knownUni
 
 -- | Wrap a type into @SomeTypeIn@, provided it's in the universe.
-someType :: forall a uni. uni `Contains` a => SomeTypeIn uni
+someType :: forall a uni. uni `Contains` a => SomeTypeIn NoArg uni
 someType = undefined -- SomeTypeIn $ knownUni @uni @a
 
 -- | Wrap a value into @Some (ValueOf uni)@, given its explicit type tag.
@@ -680,15 +683,16 @@ $(return [])  -- Stage restriction, see https://gitlab.haskell.org/ghc/ghc/issue
 
 -------------------- 'Show' / 'GShow'
 
-instance Show (SomeTypeIn uni) where
-    showsPrec = undefined -- pr (SomeTypeIn uni) = ($(makeShowsPrec ''SomeTypeIn)) pr (SomeTypeIn (AG uni))
+instance GShow (uni NoArg) => Show (SomeTypeIn uni) where
+    showsPrec pr (SomeTypeIn uni) = ($(makeShowsPrec ''SomeTypeIn)) pr (SomeTypeIn (AG uni))
 
 instance (Closed uni, uni `Everywhere` Show) => GShow (ValueOf uni) where
     gshowsPrec = undefined
 instance (Closed uni, uni `Everywhere` Show) => Show (ValueOf uni a) where
-    showsPrec pr (ValueOf (TermLevel uni) x) = undefined
+    showsPrec pr (ValueOf uni x) = undefined
 --         bring (Proxy @Show) (TermLevel uni) $ ($(makeShowsPrec ''ValueOf)) pr (ValueOf (TermLevel $ AG uni) x)
 
+-- instance Show (TypeLevel
 
 -- instance GShow (uni f) => Show (AG uni f a) where
 --     showsPrec pr (AG a) = gshowsPrec pr a

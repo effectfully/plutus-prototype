@@ -87,28 +87,28 @@ We already allow built-in functions with polymorphic types. There might be a way
 feature and have meta-constructors as built-in functions.
 -}
 
--- See Note [Representing polymorphism].
--- | The universe used by default.
-type DefaultUni :: Universe
-data DefaultUni f a where
-    DefaultUniInteger    :: DefaultUni f Integer
-    DefaultUniByteString :: DefaultUni f BS.ByteString
-    DefaultUniString     :: DefaultUni f Text.Text
-    DefaultUniUnit       :: DefaultUni f ()
-    DefaultUniBool       :: DefaultUni f Bool
-    DefaultUniList       :: f a -> DefaultUni f [a]
-    DefaultUniPair       :: f a -> f b -> DefaultUni f (a, b)
-    DefaultUniData       :: DefaultUni f Data
-
+-- -- See Note [Representing polymorphism].
+-- -- | The universe used by default.
+-- type DefaultUni :: Universe
 -- data DefaultUni f a where
 --     DefaultUniInteger    :: DefaultUni f Integer
 --     DefaultUniByteString :: DefaultUni f BS.ByteString
 --     DefaultUniString     :: DefaultUni f Text.Text
 --     DefaultUniUnit       :: DefaultUni f ()
 --     DefaultUniBool       :: DefaultUni f Bool
---     DefaultUniList       :: f (DefaultUni f a) -> DefaultUni f [a]
---     DefaultUniPair       :: f (DefaultUni f a) -> f (DefaultUni f b) -> DefaultUni f (a, b)
+--     DefaultUniList       :: f a -> DefaultUni f [a]
+--     DefaultUniPair       :: f a -> f b -> DefaultUni f (a, b)
 --     DefaultUniData       :: DefaultUni f Data
+
+data DefaultUni f a where
+    DefaultUniInteger    :: DefaultUni f Integer
+    DefaultUniByteString :: DefaultUni f BS.ByteString
+    DefaultUniString     :: DefaultUni f Text.Text
+    DefaultUniUnit       :: DefaultUni f ()
+    DefaultUniBool       :: DefaultUni f Bool
+    DefaultUniList       :: f (DefaultUni f a) -> DefaultUni f [a]
+    DefaultUniPair       :: f (DefaultUni f a) -> f (DefaultUni f b) -> DefaultUni f (a, b)
+    DefaultUniData       :: DefaultUni f Data
 
 -- type DefaultUni :: ((Type -> Type) -> Type -> Type) -> Type -> Type
 
@@ -164,16 +164,16 @@ instance Pretty (DefaultUni f a) where
 instance Pretty (SomeTypeIn DefaultUni) where
     pretty (SomeTypeIn uni) = pretty uni
 
-instance DefaultUni `Contains` Integer       where knownUni = TermLevel DefaultUniInteger
-instance DefaultUni `Contains` BS.ByteString where knownUni = TermLevel DefaultUniByteString
-instance DefaultUni `Contains` Text.Text     where knownUni = TermLevel DefaultUniString
-instance DefaultUni `Contains` ()            where knownUni = TermLevel DefaultUniUnit
-instance DefaultUni `Contains` Bool          where knownUni = TermLevel DefaultUniBool
+instance DefaultUni `Contains` Integer       where knownUni = DefaultUniInteger
+instance DefaultUni `Contains` BS.ByteString where knownUni = DefaultUniByteString
+instance DefaultUni `Contains` Text.Text     where knownUni = DefaultUniString
+instance DefaultUni `Contains` ()            where knownUni = DefaultUniUnit
+instance DefaultUni `Contains` Bool          where knownUni = DefaultUniBool
 instance DefaultUni `Contains` a => DefaultUni `Contains` [a] where
-    knownUni = TermLevel $ DefaultUniList knownUni
+    knownUni = DefaultUniList (Arg knownUni)
 instance (DefaultUni `Contains` a, DefaultUni `Contains` b) => DefaultUni `Contains` (a, b) where
-    knownUni = TermLevel $ DefaultUniPair knownUni knownUni
-instance DefaultUni `Contains` Data          where knownUni = TermLevel DefaultUniData
+    knownUni = DefaultUniPair (Arg knownUni) (Arg knownUni)
+instance DefaultUni `Contains` Data          where knownUni = DefaultUniData
 
 instance KnownBuiltinTypeAst DefaultUni Integer       => KnownTypeAst DefaultUni Integer
 instance KnownBuiltinTypeAst DefaultUni BS.ByteString => KnownTypeAst DefaultUni BS.ByteString
@@ -382,17 +382,13 @@ instance Closed DefaultUni where
     bring
         :: forall constr a r proxy. DefaultUni `Everywhere` constr
         => proxy constr -> TermLevel DefaultUni a -> (constr a => r) -> r
-    bring p (TermLevel uni) = go uni where
-        go :: DefaultUni (TermLevel DefaultUni) a' -> (constr a' => r) -> r
-        go  DefaultUniInteger     r = r
-    -- bring _ DefaultUniByteString r = r
-    -- bring _ DefaultUniString     r = r
-    -- bring _ DefaultUniUnit       r = r
-    -- bring _ DefaultUniBool       r = r
-    -- bring p (DefaultUniProtoList `DefaultUniApply` uniA) r =
-    --     bring p uniA r
-    -- bring p (DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB) r =
-    --     bring p uniA $ bring p uniB r
-    -- bring _ (f `DefaultUniApply` _ `DefaultUniApply` _ `DefaultUniApply` _) _ =
-    --     noMoreTypeFunctions f
-    -- bring _ DefaultUniData r = r
+    bring _ = go where
+        go :: TermLevel DefaultUni a' -> (constr a' => r) -> r
+        go DefaultUniInteger                      r = r
+        go DefaultUniByteString                   r = r
+        go DefaultUniString                       r = r
+        go DefaultUniUnit                         r = r
+        go DefaultUniBool                         r = r
+        go (DefaultUniList (Arg uniA))            r = go uniA r
+        go (DefaultUniPair (Arg uniA) (Arg uniB)) r = go uniA $ go uniB r
+        go DefaultUniData                         r = r
