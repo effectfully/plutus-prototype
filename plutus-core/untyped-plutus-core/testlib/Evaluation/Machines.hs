@@ -20,7 +20,9 @@ import UntypedPlutusCore.Evaluation.Machine.SteppableCek qualified as SCek
 import PlutusCore qualified as Plc
 import PlutusCore.Builtin
 import PlutusCore.Compiler.Erase
+import PlutusCore.Data qualified as Data
 import PlutusCore.Default
+import PlutusCore.Evaluation.Machine.ExBudget (ExBudget (..), ExRestrictingBudget (..))
 import PlutusCore.Evaluation.Machine.ExBudgetingDefaults qualified as Plc
 import PlutusCore.Evaluation.Machine.Exception
 import PlutusCore.Evaluation.Machine.MachineParameters
@@ -35,6 +37,8 @@ import PlutusCore.StdLib.Meta
 import PlutusCore.StdLib.Meta.Data.Function (etaExpand)
 
 import Data.Proxy (Proxy (..))
+import Data.Text (Text)
+import Data.Vector qualified as Vector
 import GHC.Exts (fromString)
 import GHC.Ix
 import GHC.TypeNats (natVal)
@@ -42,6 +46,7 @@ import Hedgehog hiding (Size, Var, eval)
 import Test.Tasty
 import Test.Tasty.Extras
 import Test.Tasty.Golden
+import Test.Tasty.HUnit
 import Test.Tasty.Hedgehog
 
 testMachine
@@ -68,7 +73,111 @@ test_machines =
     "machines"
     [ testMachine "CEK" $ Cek.evaluateCekNoEmit Plc.defaultCekParametersForTesting
     , testMachine "SteppableCEK" $ SCek.evaluateCekNoEmit Plc.defaultCekParametersForTesting
+    , test_transitions
     ]
+
+-- The steppable machine provides an independent reference for changes to CEK transitions.
+-- Returning a value directly and returning it through a builtin can take different optimized
+-- paths. Both must preserve errors, logs and spending, including at budget boundaries.
+test_transitions :: TestTree
+test_transitions =
+  testGroup "transition equivalence" $
+    [ testTransition
+        (contextName ++ "/" ++ producerName ++ "/" ++ valueName)
+        (context (producer value))
+    | (contextName, context) <- contexts
+    , (producerName, producer) <- producers
+    , (valueName, value) <- values
+    ]
+      ++ [testTransition "data matcher with evaluated arguments" dataMatcher]
+  where
+    integer :: Integer -> Term NamedDeBruijn DefaultUni DefaultFun ()
+    integer = mkConstant ()
+
+    lambda = LamAbs () (fakeNameDeBruijn $ DeBruijn 0)
+    identity = lambda $ Var () (fakeNameDeBruijn $ DeBruijn 1)
+    apps = foldl' (Apply ())
+
+    values =
+      [ ("constant", integer 7)
+      , ("delay", Delay () $ integer 8)
+      , ("delayed error", Delay () $ Error ())
+      , ("lambda", identity)
+      , ("lambda with error", lambda $ Error ())
+      , ("partial builtin", Apply () (Builtin () AddInteger) $ integer 9)
+      , ("polymorphic builtin", Builtin () IfThenElse)
+      , ("constructor", Constr () 0 [integer 10])
+      , ("empty constructor", Constr () 0 [])
+      ]
+
+    contexts =
+      [ ("return", id)
+      , ("force", Force ())
+      , ("argument", Apply () $ lambda $ integer 11)
+      , ("function", \t -> Apply () t $ integer 12)
+      , ("last constructor field", \t -> Constr () 0 [t])
+      , ("first constructor field", \t -> Constr () 0 [t, integer 13])
+      , ("scrutinee", \t -> Case () t $ Vector.singleton identity)
+      ,
+        ( "evaluated arguments"
+        , \t -> Case () (Constr () 0 [integer 16, integer 17]) $ Vector.singleton t
+        )
+      ,
+        ( "native constant arguments"
+        , \t -> Case () (mkConstant () (18 :: Integer, 19 :: Integer)) $ Vector.singleton t
+        )
+      ]
+
+    producers =
+      [ ("direct", id)
+      ,
+        ( "builtin result"
+        , \v -> apps (Force () $ Builtin () IfThenElse) [mkConstant () True, v, v]
+        )
+      ,
+        ( "logging builtin result"
+        , \v -> apps (Force () $ Builtin () Trace) [mkConstant () (fromString "trace" :: Text), v]
+        )
+      ]
+
+    -- The unused branches must stay delayed while chooseData consumes its six evaluated
+    -- arguments. Forcing the selected branch also exercises a builtin returning a closure.
+    dataMatcher =
+      Force () $
+        Case
+          ()
+          ( Constr
+              ()
+              0
+              [ mkConstant () $ Data.List []
+              , Delay () $ Error ()
+              , Delay () $ Error ()
+              , Delay () $ integer 42
+              , Delay () $ Error ()
+              , Delay () $ Error ()
+              ]
+          )
+          (Vector.singleton $ Force () $ Builtin () ChooseData)
+
+    testTransition :: TestName -> Term NamedDeBruijn DefaultUni DefaultFun () -> TestTree
+    testTransition name term = testCase name $ do
+      let run
+            :: ExBudgetMode cost DefaultUni DefaultFun
+            -> CekReport cost NamedDeBruijn DefaultUni DefaultFun
+          run mode = Cek.runCekDeBruijn Plc.defaultCekParametersForTesting mode logEmitter term
+          reference
+            :: ExBudgetMode cost DefaultUni DefaultFun
+            -> CekReport cost NamedDeBruijn DefaultUni DefaultFun
+          reference mode =
+            SCek.runCekDeBruijn Plc.defaultCekParametersForTesting mode logEmitter term
+          report (CekReport result cost logs) = (cekResultToEither result, cost, logs)
+          compareMode :: (Eq cost, Show cost) => ExBudgetMode cost DefaultUni DefaultFun -> IO ()
+          compareMode mode = assertEqual name (report $ reference mode) (report $ run mode)
+          CountingSt budget@(ExBudget cpu mem) = _cekReportCost $ run counting
+      compareMode counting
+      compareMode tallying
+      for_ [ExBudget 0 0, budget, ExBudget (max 0 $ cpu - 1) mem, ExBudget cpu (max 0 $ mem - 1)] $
+        compareMode . restricting . ExRestrictingBudget
 
 testBudget
   :: (Ix fun, Show fun, Hashable fun, Pretty fun, Typeable fun)
