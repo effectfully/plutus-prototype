@@ -1,7 +1,6 @@
 -- editorconfig-checker-disable-file
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -24,9 +23,6 @@
 {-# LANGUAGE UnliftedDatatypes #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-#if defined(x86_64_HOST_ARCH)
-{-# OPTIONS_GHC -fregs-iterative #-}
-#endif
 
 -- | The CEK machine.
 module UntypedPlutusCore.Evaluation.Machine.Cek.Internal
@@ -123,11 +119,6 @@ import Universe
 
 {- Note [Compilation peculiarities]
 READ THIS BEFORE TOUCHING ANYTHING IN THIS FILE
-
-On x86-64, @-fregs-iterative@ lets GHC keep values in the same registers across CEK
-transitions. With GHC 9.6.7, the default allocator emitted seven register copies when
-the @Apply@ case of @computeCek@ pushed a frame and jumped back to evaluate the function.
-The iterative allocator reduced this to one copy.
 
 Don't use @StrictData@, it makes the machine slower by several percent.
 
@@ -877,31 +868,33 @@ instance HasConstant (CekValue uni fun ann) where
 The context in which the machine operates.
 
 Morally, this is a stack of frames, but we use the "intrusive list" representation so that
-we can match on context and the top frame in a single, strict pattern match. Its unlifted kind
-tells GHC that the context pointer passed to each transition already points to a constructor. -}
-type Context :: (GHC.Type -> GHC.Type) -> GHC.Type -> GHC.Type -> UnliftedType
+we can match on context and the top frame in a single, strict pattern match. -}
 data Context uni fun ann
   = -- | @[V _]@
-    FrameAwaitArg {-# UNPACK #-} !(CekValue uni fun ann) (Context uni fun ann)
+    FrameAwaitArg {-# UNPACK #-} !(CekValue uni fun ann) !(Context uni fun ann)
   | -- | @[_ N]@
-    FrameAwaitFunTerm !(CekValEnv uni fun ann) !(NTerm uni fun ann) (Context uni fun ann)
+    FrameAwaitFunTerm !(CekValEnv uni fun ann) !(NTerm uni fun ann) !(Context uni fun ann)
   | -- | @[_ V]@
-    FrameAwaitFunConN !(Spine (Some (ValueOf uni))) (Context uni fun ann)
+    FrameAwaitFunConN !(Spine (Some (ValueOf uni))) !(Context uni fun ann)
   | -- | @[_ V1 .. Vn]@
-    FrameAwaitFunValueN !(ArgStackNonEmpty uni fun ann) (Context uni fun ann)
+    FrameAwaitFunValueN !(ArgStackNonEmpty uni fun ann) !(Context uni fun ann)
   | {-| @(force _)@
     See Note [Accumulators for terms] -}
-    FrameForce (Context uni fun ann)
+    FrameForce !(Context uni fun ann)
   | -- | @(constr i V0 ... Vj-1 _ Nj ... Nn)@
     FrameConstr
       !(CekValEnv uni fun ann)
       {-# UNPACK #-} !Word64
       ![NTerm uni fun ann]
       !(ArgStack uni fun ann)
-      (Context uni fun ann)
+      !(Context uni fun ann)
   | -- | @(case _ C0 .. Cn)@
-    FrameCases !(CekValEnv uni fun ann) !(V.Vector (NTerm uni fun ann)) (Context uni fun ann)
+    FrameCases !(CekValEnv uni fun ann) !(V.Vector (NTerm uni fun ann)) !(Context uni fun ann)
   | NoFrame
+
+deriving stock instance
+  (GShow uni, Everywhere uni Show, Show fun, Show ann, Closed uni)
+  => Show (Context uni fun ann)
 
 -- See Note [ExMemoryUsage instances for non-constants].
 instance (Closed uni, uni `Everywhere` ExMemoryUsage) => ExMemoryUsage (CekValue uni fun ann) where
@@ -973,79 +966,60 @@ enterComputeCek
   -> CekM uni fun s (DischargeResult uni fun)
 enterComputeCek = computeCek
   where
-    -- The ordinary compute transition returns immediate values to the current context.
+    -- \| The computing part of the CEK machine.
+    -- Either
+    -- 1. adds a frame to the context and calls 'computeCek' ('Force', 'Apply')
+    -- 2. calls 'returnCek' on values ('Delay', 'LamAbs', 'Constant', 'Builtin')
+    -- 3. throws 'EvaluationFailure' ('Error')
+    -- 4. looks up a variable in the environment and calls 'returnCek' ('Var')
     computeCek
       :: Context uni fun ann
       -> CekValEnv uni fun ann
       -> NTerm uni fun ann
       -> CekM uni fun s (DischargeResult uni fun)
-    computeCek ctx = computeStep (\() -> ctx) (returnCek ctx)
-
-    -- An immediate argument can go straight to @applyEvaluate@. Only an argument that
-    -- takes another compute transition needs a @FrameAwaitArg@ to remember its function.
-    computeArg
-      :: Context uni fun ann
-      -> CekValueU uni fun ann
-      -> CekValEnv uni fun ann
-      -> NTerm uni fun ann
-      -> CekM uni fun s (DischargeResult uni fun)
-    computeArg ctx fun env arg =
-      computeStep (\() -> FrameAwaitArg (CekValue fun) ctx) (applyEvaluate ctx fun) env arg
-
-    -- Inlining specializes the same charging and evaluation rules for both callers.
-    -- The unit argument delays construction of the unlifted context until a rule needs it.
-    computeStep
-      :: (() -> Context uni fun ann)
-      -> (CekValueU uni fun ann -> CekM uni fun s (DischargeResult uni fun))
-      -> CekValEnv uni fun ann
-      -> NTerm uni fun ann
-      -> CekM uni fun s (DischargeResult uni fun)
-    -- s ; ρ ▻ x  ↦  s ◅ ρ(x)
-    computeStep _ done !env (Var _ name) = computeVar name env done
+    -- s ; ρ ▻ {L A}  ↦ s , {_ A} ; ρ ▻ L
+    computeCek !ctx !env (Var _ varName) = do
+      stepAndMaybeSpend BVar
+      lookupVarName varName env (returnCek ctx)
     -- s ; ρ ▻ con c  ↦  s ◅ con c
-    computeStep _ done !_ (Constant _ val) = do
+    computeCek !ctx !_ (Constant _ val) = do
       stepAndMaybeSpend BConst
-      done (VCon val)
+      returnCek ctx (VCon val)
     -- s ; ρ ▻ lam x L  ↦  s ◅ lam x (L , ρ)
-    computeStep _ done !env (LamAbs _ name body) = do
+    computeCek !ctx !env (LamAbs _ name body) = do
       stepAndMaybeSpend BLamAbs
-      done (VLamAbs name body env)
+      returnCek ctx (VLamAbs name body env)
     -- s ; ρ ▻ delay L  ↦  s ◅ delay (L , ρ)
-    computeStep _ done !env (Delay _ body) = do
+    computeCek !ctx !env (Delay _ body) = do
       stepAndMaybeSpend BDelay
-      done (VDelay body env)
+      returnCek ctx (VDelay body env)
     -- s ; ρ ▻ force T  ↦  s , force _ ; ρ ▻ L
-    computeStep resume _ !env (Force _ body) = do
+    computeCek !ctx !env (Force _ body) = do
       stepAndMaybeSpend BForce
-      computeCek (FrameForce (resume ())) env body
+      computeCek (FrameForce ctx) env body
     -- s ; ρ ▻ [L M]  ↦  s , [_ (M,ρ)]  ; ρ ▻ L
-    computeStep resume _ !env (Apply _ fun arg) = do
+    computeCek !ctx !env (Apply _ fun arg) = do
       stepAndMaybeSpend BApply
-      -- A variable in function position needs no frame while looking up the function.
-      case fun of
-        Var _ name ->
-          computeVar name env $ \value -> computeArg (resume ()) value env arg
-        _ -> computeCek (FrameAwaitFunTerm env arg (resume ())) env fun
+      computeCek (FrameAwaitFunTerm env arg ctx) env fun
     -- s ; ρ ▻ builtin bn  ↦  s ◅ builtin bn arity arity [] [] ρ
-    computeStep _ done !_ (Builtin _ bn) = do
+    computeCek !ctx !_ (Builtin _ bn) = do
       stepAndMaybeSpend BBuiltin
       let meaning = lookupBuiltin bn ?cekRuntime
       -- 'Builtin' is fully discharged.
-      done (VBuiltin bn (Builtin () bn) meaning)
+      returnCek ctx (VBuiltin bn (Builtin () bn) meaning)
     -- s ; ρ ▻ constr I T0 .. Tn  ↦  s , constr I _ (T1 ... Tn, ρ) ; ρ ▻ T0
-    computeStep resume done !env (Constr _ i es) = do
+    computeCek !ctx !env (Constr _ i es) = do
       stepAndMaybeSpend BConstr
       case es of
-        (t : rest) -> computeCek (FrameConstr env i rest NilStack (resume ())) env t
-        [] -> done (VConstr i EmptyStack)
+        (t : rest) -> computeCek (FrameConstr env i rest NilStack ctx) env t
+        [] -> returnCek ctx (VConstr i EmptyStack)
     -- s ; ρ ▻ case S C0 ... Cn  ↦  s , case _ (C0 ... Cn, ρ) ; ρ ▻ S
-    computeStep resume _ !env (Case _ scrut cs) = do
+    computeCek !ctx !env (Case _ scrut cs) = do
       stepAndMaybeSpend BCase
-      computeCek (FrameCases env cs (resume ())) env scrut
+      computeCek (FrameCases env cs ctx) env scrut
     -- s ; ρ ▻ error  ↦  <> A
-    computeStep _ _ !_ (Error _) =
+    computeCek !_ !_ (Error _) =
       throwErrorWithCause (OperationalError CekEvaluationFailure) (Error ())
-    {-# INLINE computeStep #-}
 
     -- \| The returning phase of the CEK machine.
     --    Returns 'EvaluationSuccess' in case the context is empty, otherwise pops up one frame
@@ -1069,7 +1043,7 @@ enterComputeCek = computeCek
     returnCek (FrameForce ctx) fun = forceEvaluate ctx fun
     -- s , [_ (M,ρ)] ◅ V  ↦  s , [V _] ; ρ ▻ M
     returnCek (FrameAwaitFunTerm argVarEnv arg ctx) fun =
-      computeArg ctx fun argVarEnv arg
+      computeCek (FrameAwaitArg (CekValue fun) ctx) argVarEnv arg
     -- s , [(lam x (M,ρ)) _] ◅ V  ↦  s ; ρ [ x  ↦  V ] ▻ M
     -- FIXME (https://github.com/IntersectMBO/plutus-private/issues/1878):
     -- add rule for VBuiltin once it's in the specification.
@@ -1258,15 +1232,13 @@ enterComputeCek = computeCek
     spendBudget = unCekBudgetSpender ?cekBudgetSpender
     {-# INLINE spendBudget #-}
 
-    -- Both variable transitions charge the step before looking up the name.
-    computeVar
+    -- \| Look up a variable name in the environment.
+    lookupVarName
       :: NamedDeBruijn
       -> CekValEnv uni fun ann
       -> (CekValueU uni fun ann -> CekM uni fun s (DischargeResult uni fun))
       -> CekM uni fun s (DischargeResult uni fun)
-    computeVar varName varEnv k = do
-      stepAndMaybeSpend BVar
-      let NamedDeBruijn _ varIx = varName
+    lookupVarName varName@(NamedDeBruijn _ varIx) varEnv k =
       Env.contIndexOne
         ( \case
             Env.Missing ->
@@ -1275,7 +1247,7 @@ enterComputeCek = computeCek
         )
         varEnv
         (coerce varIx)
-    {-# INLINE computeVar #-}
+    {-# INLINE lookupVarName #-}
 
 -- See Note [Compilation peculiarities].
 -- | Evaluate a term using the CEK machine and keep track of costing, logging is optional.
