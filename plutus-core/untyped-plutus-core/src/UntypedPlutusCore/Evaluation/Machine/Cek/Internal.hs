@@ -765,14 +765,14 @@ instance Pretty CekUserError where
   pretty CekEvaluationFailure =
     "The machine terminated because of an error, either from a built-in function or from an explicit use of 'error'."
 
-argNonEmptyStackToList :: ArgStackNonEmpty uni fun ann -> [CekValue uni fun ann]
-argNonEmptyStackToList (LastStackNonEmpty val) = [val]
-argNonEmptyStackToList (ConsStackNonEmpty val stack) = val : argNonEmptyStackToList stack
+mapArgStackNonEmpty :: (CekValueU uni fun ann -> a) -> ArgStackNonEmpty uni fun ann -> [a]
+mapArgStackNonEmpty f (LastStackNonEmpty (CekValue value)) = [f value]
+mapArgStackNonEmpty f (ConsStackNonEmpty (CekValue value) rest) =
+  f value : mapArgStackNonEmpty f rest
 
--- | Convert the given 'EmptyOrMultiStack to a list.
-argStackToList :: EmptyOrMultiStack uni fun ann -> [CekValue uni fun ann]
-argStackToList EmptyStack = []
-argStackToList (MultiStack stack) = argNonEmptyStackToList stack
+mapArgStack :: (CekValueU uni fun ann -> a) -> EmptyOrMultiStack uni fun ann -> [a]
+mapArgStack _ EmptyStack = []
+mapArgStack f (MultiStack args) = mapArgStackNonEmpty f args
 
 -- | The result of 'dischargeCekValue'.
 data DischargeResult uni fun
@@ -815,8 +815,7 @@ dischargeCekValueU value0 = DischargeNonConstant $ goValue value0
       -- machine, or (b) it's needed for an error message.
       -- @term@ is fully discharged, so we can return it directly without any further discharging.
       VBuiltin _ term _ -> term
-      VConstr ind args ->
-        Constr () ind [goValue value | CekValue value <- argStackToList args]
+      VConstr ind args -> Constr () ind (mapArgStack goValue args)
 
     -- Instantiate all the free variables of a term by looking them up in an environment.
     -- Mutually recursive with @goValue@.
